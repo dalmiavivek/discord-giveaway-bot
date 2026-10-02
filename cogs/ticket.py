@@ -232,11 +232,33 @@ class TicketControlView(discord.ui.View):
             except Exception as e:
                 print(f"Error sending DM: {e}")
 
-        await asyncio.sleep(3)
-        try:
-            await interaction.channel.delete(reason=f"Ticket closed by {interaction.user}")
-        except Exception:
-            pass
+        # Lock ticket creator from chatting
+        creator = interaction.guild.get_member(ticket["user_id"])
+        if creator:
+            try:
+                await interaction.channel.set_permissions(
+                    creator,
+                    view_channel=True,
+                    send_messages=False,
+                    read_message_history=True
+                )
+            except Exception:
+                pass
+
+        # Post closure control panel with Delete, Transcript, and Reopen buttons
+        closed_embed = discord.Embed(
+            title=f"🔒 Ticket Closed — #{ticket['ticket_number']:04d}",
+            description=(
+                f"This ticket was closed by {interaction.user.mention}.\n"
+                f"• An automated transcript has been sent to the creator's DM.\n\n"
+                f"**Staff Actions:**\n"
+                f"• Click **🗑️ Delete Ticket** to permanently delete this channel.\n"
+                f"• Click **🔓 Re-open** to unlock and continue this ticket."
+            ),
+            color=discord.Color.dark_grey(),
+            timestamp=datetime.utcnow()
+        )
+        await interaction.channel.send(embed=closed_embed, view=ClosedTicketControlView())
 
     @discord.ui.button(
         label="📋 Transcript",
@@ -269,6 +291,92 @@ class TicketControlView(discord.ui.View):
             filename=f"transcript-ticket-{ticket_num:04d}.txt"
         )
         await interaction.followup.send("📄 Here is the current transcript:", file=file)
+
+class ClosedTicketControlView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="🗑️ Delete Ticket",
+        style=discord.ButtonStyle.danger,
+        custom_id="ticket:delete"
+    )
+    async def delete_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("🗑️ **Deleting ticket channel in 3 seconds...**")
+        await asyncio.sleep(3)
+        try:
+            await interaction.channel.delete(reason=f"Ticket deleted by {interaction.user}")
+        except Exception:
+            pass
+
+    @discord.ui.button(
+        label="📋 Transcript",
+        style=discord.ButtonStyle.secondary,
+        custom_id="ticket:closed_transcript"
+    )
+    async def transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket_num = ticket["ticket_number"] if ticket else 0
+
+        transcript_content = []
+        transcript_content.append(f"=== TICKET #{ticket_num:04d} TRANSCRIPT ===")
+        transcript_content.append(f"Channel: {interaction.channel.name}")
+        transcript_content.append(f"Exported At: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        transcript_content.append("=" * 45 + "\n")
+
+        async for msg in interaction.channel.history(limit=500, oldest_first=True):
+            ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            author = f"{msg.author.name}#{msg.author.discriminator}" if msg.author.discriminator != "0" else msg.author.name
+            line = f"[{ts}] {author}: {msg.clean_content}"
+            if msg.attachments:
+                att_urls = ", ".join([att.url for att in msg.attachments])
+                line += f" [Attachments: {att_urls}]"
+            transcript_content.append(line)
+
+        transcript_str = "\n".join(transcript_content)
+        file = discord.File(
+            io.BytesIO(transcript_str.encode("utf-8")),
+            filename=f"transcript-ticket-{ticket_num:04d}.txt"
+        )
+        await interaction.followup.send("📄 Here is the current transcript:", file=file)
+
+    @discord.ui.button(
+        label="🔓 Re-open",
+        style=discord.ButtonStyle.success,
+        custom_id="ticket:reopen"
+    )
+    async def reopen_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
+            return
+
+        database.reopen_ticket(interaction.channel_id)
+
+        # Restore permissions for creator
+        creator = interaction.guild.get_member(ticket["user_id"])
+        if creator:
+            await interaction.channel.set_permissions(
+                creator,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True
+            )
+
+        embed = discord.Embed(
+            title="🔓 Ticket Re-opened",
+            description=f"Ticket #{ticket['ticket_number']:04d} has been re-opened by {interaction.user.mention}.",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed, view=TicketControlView())
 
 class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands for managing the support ticket system"):
     def __init__(self, bot: commands.Bot):
@@ -493,9 +601,62 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
             except Exception as e:
                 print(f"Error sending DM: {e}")
 
+        # Lock ticket creator from chatting
+        creator = ctx.guild.get_member(ticket["user_id"])
+        if creator:
+            try:
+                await ctx.channel.set_permissions(
+                    creator,
+                    view_channel=True,
+                    send_messages=False,
+                    read_message_history=True
+                )
+            except Exception:
+                pass
+
+        # Post closure control panel with Delete, Transcript, and Reopen buttons
+        closed_embed = discord.Embed(
+            title=f"🔒 Ticket Closed — #{ticket['ticket_number']:04d}",
+            description=(
+                f"This ticket was closed by {ctx.author.mention}.\n"
+                f"• An automated transcript has been sent to the creator's DM.\n\n"
+                f"**Staff Actions:**\n"
+                f"• Click **🗑️ Delete Ticket** to permanently delete this channel.\n"
+                f"• Click **🔓 Re-open** to unlock and continue this ticket."
+            ),
+            color=discord.Color.dark_grey(),
+            timestamp=datetime.utcnow()
+        )
+        await ctx.send(embed=closed_embed, view=ClosedTicketControlView())
+
+    @app_commands.command(name="delete", description="Permanently delete the current ticket channel")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def ticket_delete_cmd(self, interaction: discord.Interaction):
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("🗑️ **Deleting ticket channel in 3 seconds...**")
         await asyncio.sleep(3)
         try:
-            await ctx.channel.delete(reason=f"Ticket closed by {ctx.author}")
+            await interaction.channel.delete(reason=f"Ticket deleted by {interaction.user}")
+        except Exception:
+            pass
+
+    @commands.command(name="ticketdelete", aliases=["tdelete"])
+    @commands.has_permissions(manage_channels=True)
+    async def prefix_ticket_delete(self, ctx: commands.Context):
+        """Delete current ticket channel: !ticketdelete"""
+        ticket = database.get_ticket_by_channel(ctx.channel.id)
+        if not ticket:
+            await ctx.send("❌ This command can only be used inside a ticket channel.")
+            return
+
+        await ctx.send("🗑️ **Deleting ticket channel in 3 seconds...**")
+        await asyncio.sleep(3)
+        try:
+            await ctx.channel.delete(reason=f"Ticket deleted by {ctx.author}")
         except Exception:
             pass
 

@@ -56,9 +56,11 @@ class Settings(commands.Cog):
             name="🎫 Ticket Commands",
             value=(
                 f"• `/ticket setup` or `{prefix}ticketsetup` — Deploy ticket panel\n"
+                f"• `/ticket setstaff <role>` or `{prefix}ticketstaff` — Set staff role to ping\n"
                 f"• `/ticket add <member>` or `{prefix}ticketadd` — Add user to ticket\n"
                 f"• `/ticket remove <member>` or `{prefix}ticketremove` — Remove user from ticket\n"
-                f"• `/ticket close` or `{prefix}ticketclose` — Close ticket & save transcript"
+                f"• `/ticket close` or `{prefix}ticketclose` — Close ticket & send transcript\n"
+                f"• `/ticket delete` or `{prefix}ticketdelete` — Permanently delete ticket channel"
             ),
             inline=False
         )

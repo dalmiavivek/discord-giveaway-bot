@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 import database
 from cogs.giveaway import GiveawayView
-from cogs.ticket import TicketPanelView, TicketControlView
+from cogs.ticket import TicketPanelView, TicketControlView, ClosedTicketControlView
 
 load_dotenv()
 
@@ -53,6 +53,7 @@ class GiveawayBot(commands.Bot):
         # Register persistent ticket views
         self.add_view(TicketPanelView())
         self.add_view(TicketControlView())
+        self.add_view(ClosedTicketControlView())
         print(f"🔄 Restored {len(active_giveaways)} active giveaway view(s) & ticket views.")
 
         # 4. Sync slash commands globally

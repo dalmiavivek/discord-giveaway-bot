@@ -346,4 +346,14 @@ def set_support_role(guild_id: int, role_id: int):
         """, (guild_id, role_id, role_id))
         conn.commit()
 
+def reopen_ticket(channel_id: int):
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE tickets
+            SET status = 'open', closed_at = NULL, closed_by = NULL
+            WHERE channel_id = ?
+        """, (channel_id,))
+        conn.commit()
+
+
 

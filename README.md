@@ -32,9 +32,11 @@ Both **Slash Commands** (`/`) and **Prefix Commands** (default: `!`, e.g. `!gsta
 | `!glist` | Everyone | View all currently active giveaways in the server. |
 | `!stats [@member]` | Everyone | Check message count and voice channel time. |
 | `!ticketsetup` | Manage Server | Post the ticket creation panel with the "Open Ticket" button. |
+| `!ticketstaff @role` | Manage Server | Set staff role to ping on new tickets. |
 | `!ticketadd @member` | Manage Messages | Add a user to the current ticket channel. |
 | `!ticketremove @member` | Manage Messages | Remove a user from the current ticket channel. |
-| `!ticketclose` | Everyone | Close the ticket, send transcripts to DM & logs, and delete channel. |
+| `!ticketclose` | Everyone in ticket | Close the ticket, send transcripts to DM & logs, and lock channel. |
+| `!ticketdelete` | Manage Channels | Permanently delete the ticket channel. |
 | `!setprefix <new_prefix>` | Manage Server | Change the command prefix for this server (stored in SQLite). |
 | `!prefix` | Everyone | View the current prefix for this server. |
 | `!help` | Everyone | Show all available commands in an embed. |
@@ -49,9 +51,11 @@ Both **Slash Commands** (`/`) and **Prefix Commands** (default: `!`, e.g. `!gsta
 | `/giveaway list` | Everyone | View all currently active giveaways in the server. |
 | `/user-stats` | Everyone | Check your own or another member's message count and voice channel time. |
 | `/ticket setup` | Manage Server | Deploy ticket panel with options for category, support role, and log channel. |
+| `/ticket setstaff` | Manage Server | Set the staff role to ping on new tickets. |
 | `/ticket add` | Manage Messages | Add a user to the current ticket channel. |
 | `/ticket remove` | Manage Messages | Remove a user from the current ticket channel. |
-| `/ticket close` | Everyone | Close ticket, generate text transcript, and delete channel. |
+| `/ticket close` | Everyone in ticket | Close ticket, generate text transcript, send to DM, and show delete button. |
+| `/ticket delete` | Manage Channels | Permanently delete the ticket channel. |
 | `/setprefix` | Manage Server | Change the command prefix for this server. |
 | `/prefix` | Everyone | Show the current prefix. |
 
