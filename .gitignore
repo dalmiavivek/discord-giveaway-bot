@@ -1,0 +1,19 @@
+# Security: Never commit environment variables containing secrets/tokens
+.env
+
+# Python virtual environment
+venv/
+ENV/
+env/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite Database
+*.db
+*.sqlite3
+
+# macOS system files
+.DS_Store
