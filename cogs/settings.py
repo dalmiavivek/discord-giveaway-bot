@@ -10,7 +10,7 @@ import database
 # Discord dark theme color matching the Paradox style
 COLOR_DARK = discord.Color(0x2B2D31)
 
-DEFAULT_BANNER_URL = "https://raw.githubusercontent.com/dalmiavivek/discord-giveaway-bot/main/assets/banner.jpg"
+DEFAULT_BANNER_URL = "https://raw.githubusercontent.com/dalmiavivek/discord-giveaway-bot/main/assets/banner.png"
 
 def get_banner_url(bot: commands.Bot) -> str:
     env_banner = os.getenv("BOT_BANNER_URL")
