@@ -53,6 +53,17 @@ class Settings(commands.Cog):
         )
 
         embed.add_field(
+            name="🎫 Ticket Commands",
+            value=(
+                f"• `/ticket setup` or `{prefix}ticketsetup` — Deploy ticket panel\n"
+                f"• `/ticket add <member>` or `{prefix}ticketadd` — Add user to ticket\n"
+                f"• `/ticket remove <member>` or `{prefix}ticketremove` — Remove user from ticket\n"
+                f"• `/ticket close` or `{prefix}ticketclose` — Close ticket & save transcript"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
             name="⚙️ Configuration",
             value=(
                 f"• `{prefix}setprefix <new_prefix>` — Change server prefix\n"

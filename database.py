@@ -56,6 +56,28 @@ def init_db():
                 prefix TEXT NOT NULL DEFAULT '!'
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_settings (
+                guild_id INTEGER PRIMARY KEY,
+                category_id INTEGER,
+                support_role_id INTEGER,
+                log_channel_id INTEGER,
+                ticket_counter INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tickets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL UNIQUE,
+                user_id INTEGER NOT NULL,
+                ticket_number INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at REAL NOT NULL,
+                closed_at REAL,
+                closed_by INTEGER
+            )
+        """)
         conn.commit()
 
 def create_giveaway(
@@ -238,3 +260,80 @@ def set_guild_prefix(guild_id: int, prefix: str):
             ON CONFLICT(guild_id) DO UPDATE SET prefix = ?
         """, (guild_id, prefix, prefix))
         conn.commit()
+
+# --- Ticket System ---
+
+def get_ticket_settings(guild_id: int) -> Dict[str, Any]:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM ticket_settings WHERE guild_id = ?", (guild_id,)).fetchone()
+        if row:
+            return dict(row)
+        return {
+            "guild_id": guild_id,
+            "category_id": None,
+            "support_role_id": None,
+            "log_channel_id": None,
+            "ticket_counter": 0
+        }
+
+def set_ticket_settings(
+    guild_id: int,
+    category_id: Optional[int] = None,
+    support_role_id: Optional[int] = None,
+    log_channel_id: Optional[int] = None
+):
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO ticket_settings (guild_id, category_id, support_role_id, log_channel_id, ticket_counter)
+            VALUES (?, ?, ?, ?, 0)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                category_id = COALESCE(?, category_id),
+                support_role_id = COALESCE(?, support_role_id),
+                log_channel_id = COALESCE(?, log_channel_id)
+        """, (guild_id, category_id, support_role_id, log_channel_id, category_id, support_role_id, log_channel_id))
+        conn.commit()
+
+def increment_ticket_counter(guild_id: int) -> int:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO ticket_settings (guild_id, ticket_counter)
+            VALUES (?, 1)
+            ON CONFLICT(guild_id) DO UPDATE SET ticket_counter = ticket_counter + 1
+        """, (guild_id,))
+        row = cursor.execute("SELECT ticket_counter FROM ticket_settings WHERE guild_id = ?", (guild_id,)).fetchone()
+        conn.commit()
+        return row["ticket_counter"] if row else 1
+
+def create_ticket(guild_id: int, channel_id: int, user_id: int, ticket_number: int) -> int:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO tickets (guild_id, channel_id, user_id, ticket_number, status, created_at)
+            VALUES (?, ?, ?, ?, 'open', ?)
+        """, (guild_id, channel_id, user_id, ticket_number, time.time()))
+        conn.commit()
+        return cursor.lastrowid
+
+def get_ticket_by_channel(channel_id: int) -> Optional[Dict[str, Any]]:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM tickets WHERE channel_id = ?", (channel_id,)).fetchone()
+        return dict(row) if row else None
+
+def get_user_open_ticket(guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM tickets WHERE guild_id = ? AND user_id = ? AND status = 'open'",
+            (guild_id, user_id)
+        ).fetchone()
+        return dict(row) if row else None
+
+def close_ticket(channel_id: int, closed_by: int):
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE tickets
+            SET status = 'closed', closed_at = ?, closed_by = ?
+            WHERE channel_id = ?
+        """, (time.time(), closed_by, channel_id))
+        conn.commit()
+

@@ -14,6 +14,7 @@ A modern, full-featured Discord Giveaway Bot built with **Python 3.10+** and **`
 - **Slash Commands**: Modern Discord commands with autocomplete and descriptions.
 - **Reroll & Management**: End giveaways early or reroll new winners on the fly.
 - **Activity Tracker**: Built-in listener tracks user message counts and VC minutes per server.
+- **Support Ticket System**: Complete private ticket manager with interactive creation panel, modal reason input, permission isolation, user management, and automated transcript exports on close.
 
 ---
 
@@ -30,6 +31,10 @@ Both **Slash Commands** (`/`) and **Prefix Commands** (default: `!`, e.g. `!gsta
 | `!greroll <giveaway_id> [winners]` | Manage Server | Pick new winner(s) for an ended giveaway. |
 | `!glist` | Everyone | View all currently active giveaways in the server. |
 | `!stats [@member]` | Everyone | Check message count and voice channel time. |
+| `!ticketsetup` | Manage Server | Post the ticket creation panel with the "Open Ticket" button. |
+| `!ticketadd @member` | Manage Messages | Add a user to the current ticket channel. |
+| `!ticketremove @member` | Manage Messages | Remove a user from the current ticket channel. |
+| `!ticketclose` | Everyone | Close the ticket, send transcripts to DM & logs, and delete channel. |
 | `!setprefix <new_prefix>` | Manage Server | Change the command prefix for this server (stored in SQLite). |
 | `!prefix` | Everyone | View the current prefix for this server. |
 | `!help` | Everyone | Show all available commands in an embed. |
@@ -43,6 +48,10 @@ Both **Slash Commands** (`/`) and **Prefix Commands** (default: `!`, e.g. `!gsta
 | `/giveaway reroll` | Manage Server | Pick new winner(s) for an ended giveaway. |
 | `/giveaway list` | Everyone | View all currently active giveaways in the server. |
 | `/user-stats` | Everyone | Check your own or another member's message count and voice channel time. |
+| `/ticket setup` | Manage Server | Deploy ticket panel with options for category, support role, and log channel. |
+| `/ticket add` | Manage Messages | Add a user to the current ticket channel. |
+| `/ticket remove` | Manage Messages | Remove a user from the current ticket channel. |
+| `/ticket close` | Everyone | Close ticket, generate text transcript, and delete channel. |
 | `/setprefix` | Manage Server | Change the command prefix for this server. |
 | `/prefix` | Everyone | Show the current prefix. |
 
@@ -134,10 +143,12 @@ discord-giveaway-bot/
 ├── cogs/
 │   ├── activity.py       # Message & voice channel tracking + stats commands
 │   ├── giveaway.py       # Giveaway commands (slash & prefix), button view, and auto-ending loop
-│   └── settings.py       # Prefix configuration (!setprefix, /setprefix) & !help
-├── database.py           # SQLite storage for giveaways, entries, activity, and prefixes
+│   ├── settings.py       # Prefix configuration (!setprefix, /setprefix) & !help
+│   └── ticket.py         # Ticket panel, modal, transcripts, and ticket controls
+├── database.py           # SQLite storage for giveaways, tickets, activity, and prefixes
 ├── main.py               # Bot entry point, dynamic prefix resolver, and slash command sync
 ├── requirements.txt      # Python dependencies (discord.py, python-dotenv)
+├── Procfile              # Cloud process declaration for Railway/Heroku
 ├── .env.example          # Environment variables template
 └── README.md             # Setup and usage guide
 ```

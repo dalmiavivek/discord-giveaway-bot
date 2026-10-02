@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 import database
 from cogs.giveaway import GiveawayView
+from cogs.ticket import TicketPanelView, TicketControlView
 
 load_dotenv()
 
@@ -41,13 +42,18 @@ class GiveawayBot(commands.Bot):
         await self.load_extension("cogs.giveaway")
         await self.load_extension("cogs.activity")
         await self.load_extension("cogs.settings")
-        print("🧩 Cogs loaded: giveaway, activity, settings.")
+        await self.load_extension("cogs.ticket")
+        print("🧩 Cogs loaded: giveaway, activity, settings, ticket.")
 
         # 3. Re-register persistent views so buttons work after reboot
         active_giveaways = database.get_active_giveaways()
         for gw in active_giveaways:
             self.add_view(GiveawayView(gw["id"]))
-        print(f"🔄 Restored {len(active_giveaways)} active giveaway view(s).")
+        
+        # Register persistent ticket views
+        self.add_view(TicketPanelView())
+        self.add_view(TicketControlView())
+        print(f"🔄 Restored {len(active_giveaways)} active giveaway view(s) & ticket views.")
 
         # 4. Sync slash commands globally
         try:
