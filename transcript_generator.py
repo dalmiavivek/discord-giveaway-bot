@@ -488,3 +488,61 @@ async def generate_html_transcript(
         io.BytesIO(html_document.encode("utf-8")),
         filename=f"transcript-ticket-{ticket_num:04d}.html"
     )
+
+async def generate_txt_transcript(
+    channel: discord.TextChannel,
+    ticket: dict,
+    closed_by: Optional[discord.Member | discord.User] = None
+) -> discord.File:
+    """Generate a clean plain text (.txt) transcript for a ticket."""
+    guild = channel.guild
+    ticket_num = ticket.get("ticket_number", 0)
+    created_at_dt = datetime.utcfromtimestamp(ticket.get("created_at", datetime.utcnow().timestamp()))
+    closed_by_str = closed_by.name if closed_by else "Staff"
+
+    lines = []
+    lines.append(f"==================================================")
+    lines.append(f"           TICKET #{ticket_num:04d} TRANSCRIPT")
+    lines.append(f"==================================================")
+    lines.append(f"Server:     {guild.name} ({guild.id})")
+    lines.append(f"Channel:    #{channel.name}")
+    lines.append(f"Creator ID: {ticket.get('user_id')}")
+    lines.append(f"Created:    {created_at_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append(f"Closed By:  {closed_by_str}")
+    lines.append(f"Exported:   {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append(f"==================================================\n")
+
+    async for msg in channel.history(limit=1000, oldest_first=True):
+        ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        author = f"{msg.author.name}#{msg.author.discriminator}" if msg.author.discriminator != "0" else msg.author.name
+        bot_suffix = " [BOT]" if msg.author.bot else ""
+        content = msg.clean_content or ""
+        
+        line = f"[{ts}] {author}{bot_suffix}: {content}"
+        
+        if msg.attachments:
+            att_urls = ", ".join([att.url for att in msg.attachments])
+            line += f" [Attachments: {att_urls}]"
+            
+        if msg.embeds:
+            for emb in msg.embeds:
+                emb_details = []
+                if emb.title:
+                    emb_details.append(f"Title: {emb.title}")
+                if emb.description:
+                    emb_details.append(f"Desc: {emb.description}")
+                for f in emb.fields:
+                    emb_details.append(f"{f.name}: {f.value}")
+                if emb_details:
+                    line += f" [Embed: {' | '.join(emb_details)}]"
+                    
+        lines.append(line)
+
+    lines.append(f"\n==================== END OF TRANSCRIPT ====================")
+    txt_content = "\n".join(lines)
+
+    return discord.File(
+        io.BytesIO(txt_content.encode("utf-8")),
+        filename=f"transcript-ticket-{ticket_num:04d}.txt"
+    )
+

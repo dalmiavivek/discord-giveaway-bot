@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 from typing import Optional
 import database
-from transcript_generator import generate_html_transcript
+from transcript_generator import generate_html_transcript, generate_txt_transcript
 
 class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
     reason = discord.ui.TextInput(
@@ -154,8 +154,9 @@ class TicketControlView(discord.ui.View):
 
         await interaction.response.defer()
 
-        # Generate HTML transcript
-        transcript_file = await generate_html_transcript(interaction.channel, ticket, closed_by=interaction.user)
+        # Generate transcripts in both HTML and TXT formats
+        log_html = await generate_html_transcript(interaction.channel, ticket, closed_by=interaction.user)
+        log_txt = await generate_txt_transcript(interaction.channel, ticket, closed_by=interaction.user)
 
         # Close in DB
         database.close_ticket(interaction.channel_id, interaction.user.id)
@@ -171,17 +172,17 @@ class TicketControlView(discord.ui.View):
                         f"**Creator:** <@{ticket['user_id']}>\n"
                         f"**Closed By:** {interaction.user.mention}\n"
                         f"**Channel:** {interaction.channel.name}\n\n"
-                        f"📁 *Interactive HTML transcript attached below.*"
+                        f"📁 *Both HTML (interactive) and TXT transcripts attached below.*"
                     ),
                     color=discord.Color.dark_grey(),
                     timestamp=datetime.utcnow()
                 )
                 try:
-                    await log_channel.send(embed=log_embed, file=transcript_file)
+                    await log_channel.send(embed=log_embed, files=[log_html, log_txt])
                 except Exception as e:
                     print(f"Error logging transcript: {e}")
 
-        # Send HTML transcript directly to user DM
+        # Send both HTML and TXT transcripts directly to user DM
         target_user = interaction.guild.get_member(ticket["user_id"])
         if not target_user:
             try:
@@ -191,43 +192,46 @@ class TicketControlView(discord.ui.View):
 
         if target_user:
             try:
-                dm_file = await generate_html_transcript(interaction.channel, ticket, closed_by=interaction.user)
+                dm_html = await generate_html_transcript(interaction.channel, ticket, closed_by=interaction.user)
+                dm_txt = await generate_txt_transcript(interaction.channel, ticket, closed_by=interaction.user)
                 dm_embed = discord.Embed(
                     title=f"📁 Ticket #{ticket['ticket_number']:04d} Closed",
                     description=(
                         f"Your ticket in **{interaction.guild.name}** has been closed.\n\n"
                         f"• **Closed By:** {interaction.user.mention} (`{interaction.user.name}`)\n"
-                        f"• **An interactive HTML transcript of your conversation is attached below.**\n"
-                        f"*(Download and open the file in your browser to view the Discord-styled chat)*"
+                        f"• **Transcripts:** Attached below in both formats:\n"
+                        f"  - 🌐 `.html` (Open in any web browser for a Discord-styled view)\n"
+                        f"  - 📄 `.txt` (Plain text format)"
                     ),
                     color=discord.Color.green(),
                     timestamp=datetime.utcnow()
                 )
                 dm_embed.set_footer(text=f"{interaction.guild.name} Support")
-                await target_user.send(embed=dm_embed, file=dm_file)
+                await target_user.send(embed=dm_embed, files=[dm_html, dm_txt])
             except discord.Forbidden:
                 print(f"Cannot DM user {ticket['user_id']} (DMs closed)")
             except Exception as e:
                 print(f"Error sending DM: {e}")
 
-        # Send HTML transcript directly to ticket closer DM (if different from creator)
+        # Send both HTML and TXT transcripts to ticket closer DM (if different from creator)
         closer = interaction.user
         if closer and (target_user is None or closer.id != target_user.id):
             try:
-                closer_file = await generate_html_transcript(interaction.channel, ticket, closed_by=closer)
+                closer_html = await generate_html_transcript(interaction.channel, ticket, closed_by=closer)
+                closer_txt = await generate_txt_transcript(interaction.channel, ticket, closed_by=closer)
                 closer_embed = discord.Embed(
                     title=f"📁 Ticket #{ticket['ticket_number']:04d} Closed (Staff Copy)",
                     description=(
                         f"You closed ticket **#{ticket['ticket_number']:04d}** in **{interaction.guild.name}**.\n\n"
                         f"• **Creator:** <@{ticket['user_id']}>\n"
                         f"• **Channel:** #{interaction.channel.name}\n"
-                        f"• **An interactive HTML transcript of the ticket is attached below.**"
+                        f"• **Transcripts:** Attached below in both `.html` and `.txt` formats."
                     ),
                     color=discord.Color.blue(),
                     timestamp=datetime.utcnow()
                 )
                 closer_embed.set_footer(text=f"{interaction.guild.name} Staff Logs")
-                await closer.send(embed=closer_embed, file=closer_file)
+                await closer.send(embed=closer_embed, files=[closer_html, closer_txt])
             except discord.Forbidden:
                 print(f"Cannot DM closer {closer.id} (DMs closed)")
             except Exception as e:
@@ -246,17 +250,16 @@ class TicketControlView(discord.ui.View):
             except Exception:
                 pass
 
-        # Post closure control panel with Delete, Transcript, and Reopen buttons
-        # Note: Channel will NOT delete until staff clicks the Delete Ticket button!
+        # Post closure control panel with Delete, HTML, TXT, and Reopen buttons
         closed_embed = discord.Embed(
             title=f"🔒 Ticket Closed — #{ticket['ticket_number']:04d}",
             description=(
                 f"This ticket was closed by {interaction.user.mention}.\n"
-                f"• An interactive HTML transcript has been sent to the creator's DM.\n\n"
+                f"• Transcripts (HTML & TXT) have been sent to the creator's DM.\n\n"
                 f"**Staff Actions:**\n"
                 f"• Click **🗑️ Delete Ticket** when you are ready to permanently delete this channel.\n"
                 f"• Click **🔓 Re-open** to unlock and continue this ticket.\n"
-                f"• Click **📋 HTML Transcript** to download the chat archive."
+                f"• Download transcript: **🌐 HTML** or **📄 TXT** below."
             ),
             color=discord.Color.dark_grey(),
             timestamp=datetime.utcnow()
@@ -264,11 +267,11 @@ class TicketControlView(discord.ui.View):
         await interaction.channel.send(embed=closed_embed, view=ClosedTicketControlView())
 
     @discord.ui.button(
-        label="📋 HTML Transcript",
+        label="🌐 HTML Transcript",
         style=discord.ButtonStyle.secondary,
-        custom_id="ticket:transcript"
+        custom_id="ticket:html_transcript"
     )
-    async def transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def html_transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         ticket = database.get_ticket_by_channel(interaction.channel_id)
         if not ticket:
@@ -276,7 +279,22 @@ class TicketControlView(discord.ui.View):
             return
 
         file = await generate_html_transcript(interaction.channel, ticket)
-        await interaction.followup.send("📄 **Here is the interactive HTML transcript:**\n*(Open in your browser to view the Discord-styled chat)*", file=file)
+        await interaction.followup.send("📄 **Here is your HTML transcript:**\n*(Open in any browser for a Discord-styled view)*", file=file)
+
+    @discord.ui.button(
+        label="📄 TXT Transcript",
+        style=discord.ButtonStyle.secondary,
+        custom_id="ticket:txt_transcript"
+    )
+    async def txt_transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.followup.send("❌ This channel is not a tracked ticket.", ephemeral=True)
+            return
+
+        file = await generate_txt_transcript(interaction.channel, ticket)
+        await interaction.followup.send("📄 **Here is your TXT transcript:**", file=file)
 
 class ClosedTicketControlView(discord.ui.View):
     def __init__(self):
@@ -299,21 +317,6 @@ class ClosedTicketControlView(discord.ui.View):
             await interaction.channel.delete(reason=f"Ticket deleted by {interaction.user}")
         except Exception:
             pass
-
-    @discord.ui.button(
-        label="📋 HTML Transcript",
-        style=discord.ButtonStyle.secondary,
-        custom_id="ticket:closed_transcript"
-    )
-    async def transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
-        if not ticket:
-            await interaction.followup.send("❌ This channel is not a tracked ticket.", ephemeral=True)
-            return
-
-        file = await generate_html_transcript(interaction.channel, ticket)
-        await interaction.followup.send("📄 **Here is the interactive HTML transcript:**\n*(Open in your browser to view the Discord-styled chat)*", file=file)
 
     @discord.ui.button(
         label="🔓 Re-open",
@@ -346,6 +349,36 @@ class ClosedTicketControlView(discord.ui.View):
             color=discord.Color.green()
         )
         await interaction.response.send_message(embed=embed, view=TicketControlView())
+
+    @discord.ui.button(
+        label="🌐 HTML Transcript",
+        style=discord.ButtonStyle.secondary,
+        custom_id="ticket:closed_html"
+    )
+    async def html_transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.followup.send("❌ This channel is not a tracked ticket.", ephemeral=True)
+            return
+
+        file = await generate_html_transcript(interaction.channel, ticket)
+        await interaction.followup.send("📄 **Here is your HTML transcript:**\n*(Open in any browser for a Discord-styled view)*", file=file)
+
+    @discord.ui.button(
+        label="📄 TXT Transcript",
+        style=discord.ButtonStyle.secondary,
+        custom_id="ticket:closed_txt"
+    )
+    async def txt_transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.followup.send("❌ This channel is not a tracked ticket.", ephemeral=True)
+            return
+
+        file = await generate_txt_transcript(interaction.channel, ticket)
+        await interaction.followup.send("📄 **Here is your TXT transcript:**", file=file)
 
 class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands for managing the support ticket system"):
     def __init__(self, bot: commands.Bot):
@@ -491,8 +524,9 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
             await ctx.send("❌ This command can only be used inside a ticket channel.")
             return
 
-        # Generate HTML transcript
-        transcript_file = await generate_html_transcript(ctx.channel, ticket, closed_by=ctx.author)
+        # Generate transcripts in both HTML and TXT formats
+        log_html = await generate_html_transcript(ctx.channel, ticket, closed_by=ctx.author)
+        log_txt = await generate_txt_transcript(ctx.channel, ticket, closed_by=ctx.author)
 
         database.close_ticket(ctx.channel.id, ctx.author.id)
 
@@ -506,17 +540,17 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
                         f"**User:** <@{ticket['user_id']}>\n"
                         f"**Closed By:** {ctx.author.mention}\n"
                         f"**Channel:** {ctx.channel.name}\n\n"
-                        f"📁 *Interactive HTML transcript attached below.*"
+                        f"📁 *Both HTML (interactive) and TXT transcripts attached below.*"
                     ),
                     color=discord.Color.dark_grey(),
                     timestamp=datetime.utcnow()
                 )
                 try:
-                    await log_channel.send(embed=log_embed, file=transcript_file)
+                    await log_channel.send(embed=log_embed, files=[log_html, log_txt])
                 except Exception:
                     pass
 
-        # Send HTML transcript directly to user DM
+        # Send both HTML and TXT transcripts directly to user DM
         target_user = ctx.guild.get_member(ticket["user_id"])
         if not target_user:
             try:
@@ -526,43 +560,46 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
 
         if target_user:
             try:
-                dm_file = await generate_html_transcript(ctx.channel, ticket, closed_by=ctx.author)
+                dm_html = await generate_html_transcript(ctx.channel, ticket, closed_by=ctx.author)
+                dm_txt = await generate_txt_transcript(ctx.channel, ticket, closed_by=ctx.author)
                 dm_embed = discord.Embed(
                     title=f"📁 Ticket #{ticket['ticket_number']:04d} Closed",
                     description=(
                         f"Your ticket in **{ctx.guild.name}** has been closed.\n\n"
                         f"• **Closed By:** {ctx.author.mention} (`{ctx.author.name}`)\n"
-                        f"• **An interactive HTML transcript of your conversation is attached below.**\n"
-                        f"*(Download and open the file in your browser to view the Discord-styled chat)*"
+                        f"• **Transcripts:** Attached below in both formats:\n"
+                        f"  - 🌐 `.html` (Open in any web browser for a Discord-styled view)\n"
+                        f"  - 📄 `.txt` (Plain text format)"
                     ),
                     color=discord.Color.green(),
                     timestamp=datetime.utcnow()
                 )
                 dm_embed.set_footer(text=f"{ctx.guild.name} Support")
-                await target_user.send(embed=dm_embed, file=dm_file)
+                await target_user.send(embed=dm_embed, files=[dm_html, dm_txt])
             except discord.Forbidden:
                 print(f"Cannot DM user {ticket['user_id']} (DMs closed)")
             except Exception as e:
                 print(f"Error sending DM: {e}")
 
-        # Send HTML transcript directly to ticket closer DM (if different from creator)
+        # Send both HTML and TXT transcripts directly to ticket closer DM (if different from creator)
         closer = ctx.author
         if closer and (target_user is None or closer.id != target_user.id):
             try:
-                closer_file = await generate_html_transcript(ctx.channel, ticket, closed_by=closer)
+                closer_html = await generate_html_transcript(ctx.channel, ticket, closed_by=closer)
+                closer_txt = await generate_txt_transcript(ctx.channel, ticket, closed_by=closer)
                 closer_embed = discord.Embed(
                     title=f"📁 Ticket #{ticket['ticket_number']:04d} Closed (Staff Copy)",
                     description=(
                         f"You closed ticket **#{ticket['ticket_number']:04d}** in **{ctx.guild.name}**.\n\n"
                         f"• **Creator:** <@{ticket['user_id']}>\n"
                         f"• **Channel:** #{ctx.channel.name}\n"
-                        f"• **An interactive HTML transcript of the ticket is attached below.**"
+                        f"• **Transcripts:** Attached below in both `.html` and `.txt` formats."
                     ),
                     color=discord.Color.blue(),
                     timestamp=datetime.utcnow()
                 )
                 closer_embed.set_footer(text=f"{ctx.guild.name} Staff Logs")
-                await closer.send(embed=closer_embed, file=closer_file)
+                await closer.send(embed=closer_embed, files=[closer_html, closer_txt])
             except discord.Forbidden:
                 print(f"Cannot DM closer {closer.id} (DMs closed)")
             except Exception as e:
