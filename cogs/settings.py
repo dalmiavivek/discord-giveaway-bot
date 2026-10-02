@@ -60,7 +60,7 @@ class Settings(commands.Cog):
                 f"• `/ticket add <member>` or `{prefix}ticketadd` — Add user to ticket\n"
                 f"• `/ticket remove <member>` or `{prefix}ticketremove` — Remove user from ticket\n"
                 f"• `/ticket close` or `{prefix}ticketclose` — Close ticket & send transcript\n"
-                f"• `/ticket delete` or `{prefix}ticketdelete` — Permanently delete ticket channel"
+                f"• `/ticket delete` or `{prefix}delete` — Permanently delete ticket channel"
             ),
             inline=False
         )

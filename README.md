@@ -36,7 +36,7 @@ Both **Slash Commands** (`/`) and **Prefix Commands** (default: `!`, e.g. `!gsta
 | `!ticketadd @member` | Manage Messages | Add a user to the current ticket channel. |
 | `!ticketremove @member` | Manage Messages | Remove a user from the current ticket channel. |
 | `!ticketclose` | Everyone in ticket | Close the ticket, send transcripts to DM & logs, and lock channel. |
-| `!ticketdelete` | Manage Channels | Permanently delete the ticket channel. |
+| `!delete` | Manage Channels | Permanently delete the ticket channel (aliases: `!ticketdelete`, `!tdelete`). |
 | `!setprefix <new_prefix>` | Manage Server | Change the command prefix for this server (stored in SQLite). |
 | `!prefix` | Everyone | View the current prefix for this server. |
 | `!help` | Everyone | Show all available commands in an embed. |

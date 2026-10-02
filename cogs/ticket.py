@@ -648,10 +648,10 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
         except Exception:
             pass
 
-    @commands.command(name="ticketdelete", aliases=["tdelete"])
+    @commands.command(name="delete", aliases=["ticketdelete", "tdelete"])
     @commands.has_permissions(manage_channels=True)
     async def prefix_ticket_delete(self, ctx: commands.Context):
-        """Delete current ticket channel: !ticketdelete"""
+        """Delete current ticket channel: !delete"""
         ticket = database.get_ticket_by_channel(ctx.channel.id)
         if not ticket:
             await ctx.send("❌ This command can only be used inside a ticket channel.")
