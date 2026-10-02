@@ -7,7 +7,7 @@ from discord.ext import commands
 from typing import Optional
 import database
 
-# Discord dark theme color matching the Paradox style
+# Discord dark theme color matching the clean layout
 COLOR_DARK = discord.Color(0x2B2D31)
 
 DEFAULT_BANNER_URL = "https://raw.githubusercontent.com/dalmiavivek/discord-giveaway-bot/main/assets/banner.png"
@@ -26,10 +26,10 @@ def get_creator_name(bot: commands.Bot) -> str:
         return env_creator
     if getattr(bot, "application", None) and getattr(bot.application, "owner", None):
         return bot.application.owner.name
-    return "knownazcrazy"
+    return "dalmiavivek"
 
 def get_home_embed(prefix: str, bot: commands.Bot) -> discord.Embed:
-    bot_name = bot.user.display_name if bot.user else "Paradox"
+    bot_name = bot.user.display_name if bot.user else "LoveAffair"
     creator = get_creator_name(bot)
     banner_url = get_banner_url(bot)
 
@@ -37,21 +37,11 @@ def get_home_embed(prefix: str, bot: commands.Bot) -> discord.Embed:
         f"I'm **{bot_name}**, your ultimate Discord companion!\n"
         f"Created by `{creator}`. My Prefix for this server is `{prefix}`\n\n"
         f"> **Command Categories**\n\n"
-        f"🔧 **Admin** - Server administration\n"
-        f"ℹ️ **Info** - Information & stats\n"
-        f"🛠️ **Moderation** - Moderation tools\n"
-        f"⚙️ **Utility** - Useful utilities\n"
-        f"🤖 **AutoMod** - Automated moderation\n"
-        f"🎉 **Giveaway** - Host giveaways\n"
-        f"🎧 **Voice** - Voice management\n"
-        f"👥 **Welcome** - Welcome systems\n"
-        f"⚡ **Counter** - Activity tracking\n"
-        f"🔊 **Voice Leveling** - Leveling for voice activity\n"
-        f"🎫 **Ticket** - Support tickets\n"
-        f"✨ **Vanity Roles** - Status role systems\n"
-        f"🏷️ **Guild Tags** - Guild tag role systems\n"
-        f"🔨 **Boycott** - Boycott system\n"
-        f"🎮 **Fun** - Entertainment commands"
+        f"🎉 **Giveaways** — Interactive & requirement-based giveaways\n"
+        f"🎫 **Tickets** — Support panel, staff alerts & dual transcripts\n"
+        f"📈 **Activity Tracker** — Message & voice channel activity tracking\n"
+        f"🛡️ **Moderation & Admin** — Server management, cleanups & permissions\n"
+        f"⚙️ **Config & Utility** — Server prefix, bot latency & statistics"
     )
 
     embed = discord.Embed(description=description, color=COLOR_DARK)
@@ -60,158 +50,81 @@ def get_home_embed(prefix: str, bot: commands.Bot) -> discord.Embed:
     return embed
 
 def get_category_embed(category: str, prefix: str, bot: commands.Bot) -> discord.Embed:
-    bot_name = bot.user.display_name if bot.user else "Paradox"
+    bot_name = bot.user.display_name if bot.user else "LoveAffair"
     banner_url = get_banner_url(bot)
 
     category_data = {
-        "admin": (
-            "Admin",
+        "giveaways": (
+            "Giveaways",
             (
-                f"🔧 `{prefix}setprefix <new_prefix>`\n"
-                f"Change the command prefix for this server.\n\n"
-                f"🔧 `{prefix}ticketsetup` or `/ticket setup`\n"
-                f"Deploy the interactive support ticket panel.\n\n"
-                f"🔧 `{prefix}ticketstaff <@role>` or `/ticket setstaff`\n"
-                f"Configure the staff role to receive ticket pings.\n\n"
-                f"🔧 `{prefix}delete` or `/ticket delete`\n"
+                f"🎉 `{prefix}gstart <duration> <winners> <prize>`\n"
+                f"Start an interactive giveaway with one-click button entry.\n"
+                f"*Example: `{prefix}gstart 1h 1w Discord Nitro`*\n\n"
+                f"🎉 `/giveaway start`\n"
+                f"Start an advanced giveaway with requirements:\n"
+                f"• `required_role` — Restrict to specific server role\n"
+                f"• `min_messages` — Enforce chat message requirement\n"
+                f"• `min_vc_minutes` — Enforce voice channel activity\n\n"
+                f"🎉 `{prefix}gend <giveaway_id>` or `/giveaway end`\n"
+                f"End an active giveaway early and pick winners.\n\n"
+                f"🎉 `{prefix}greroll <giveaway_id> [winners]` or `/giveaway reroll`\n"
+                f"Reroll one or more new winners from eligible entries.\n\n"
+                f"🎉 `{prefix}glist` or `/giveaway list`\n"
+                f"View all active giveaways in this server."
+            )
+        ),
+        "tickets": (
+            "Tickets",
+            (
+                f"🎫 `{prefix}ticketsetup` or `/ticket setup`\n"
+                f"Deploy the interactive ticket creation panel with reason modal.\n\n"
+                f"🎫 `{prefix}ticketstaff <@role>` or `/ticket setstaff`\n"
+                f"Configure the staff role to receive pings when tickets open.\n\n"
+                f"🎫 `{prefix}ticketadd <@member>` or `/ticket add`\n"
+                f"Add a member to the current ticket channel.\n\n"
+                f"🎫 `{prefix}ticketremove <@member>` or `/ticket remove`\n"
+                f"Remove a member from the ticket channel.\n\n"
+                f"🎫 `{prefix}ticketclose` or `/ticket close`\n"
+                f"Close ticket and automatically DM dual transcripts (.html & .txt) to creator and closer.\n\n"
+                f"🎫 `{prefix}delete` or `/ticket delete`\n"
+                f"Permanently delete the closed ticket channel."
+            )
+        ),
+        "activity": (
+            "Activity Tracker",
+            (
+                f"📈 `{prefix}stats [@member]` or `/user-stats`\n"
+                f"View tracked message count and total voice channel time.\n\n"
+                f"📈 **Real-Time Tracking & Requirements:**\n"
+                f"• Automatically counts messages sent across all text channels.\n"
+                f"• Automatically logs active minutes spent in voice channels.\n"
+                f"• Integrates with `/giveaway start` (`min_messages` & `min_vc_minutes`)."
+            )
+        ),
+        "admin": (
+            "Moderation & Admin",
+            (
+                f"🛡️ `{prefix}clear <amount>` or `/clear`\n"
+                f"Purge recent messages from the current channel (1-100).\n\n"
+                f"🛡️ `{prefix}kick <@member> [reason]` or `/kick`\n"
+                f"Kick a member from the server.\n\n"
+                f"🛡️ `{prefix}ban <@member> [reason]` or `/ban`\n"
+                f"Ban a member from the server.\n\n"
+                f"🛡️ `{prefix}delete` or `/ticket delete`\n"
                 f"Permanently delete a closed ticket channel."
             )
         ),
-        "info": (
-            "Info",
-            (
-                f"ℹ️ `{prefix}botinfo` or `/botinfo`\n"
-                f"Display bot latency, server count, and version info.\n\n"
-                f"ℹ️ `{prefix}ping` or `/ping`\n"
-                f"Check bot response time and websocket latency.\n\n"
-                f"ℹ️ `{prefix}prefix`\n"
-                f"Show the active prefix for this server."
-            )
-        ),
-        "moderation": (
-            "Moderation",
-            (
-                f"🛠️ `{prefix}clear <amount>` or `/clear`\n"
-                f"Delete multiple messages from the current channel (1-100).\n\n"
-                f"🛠️ `{prefix}kick <@member> [reason]` or `/kick`\n"
-                f"Kick a member from the server.\n\n"
-                f"🛠️ `{prefix}ban <@member> [reason]` or `/ban`\n"
-                f"Ban a member from the server."
-            )
-        ),
         "utility": (
-            "Utility",
+            "Config & Utility",
             (
                 f"⚙️ `{prefix}setprefix <new_prefix>`\n"
-                f"Change server prefix (e.g. `!`, `$`, `?`).\n\n"
+                f"Change the command prefix for this server (e.g. `!`, `$`, `?`).\n\n"
                 f"⚙️ `{prefix}prefix`\n"
-                f"View the current prefix.\n\n"
-                f"⚙️ `{prefix}ping`\n"
-                f"Check bot latency and API heartbeat."
-            )
-        ),
-        "automod": (
-            "AutoMod",
-            (
-                f"🤖 **Automated Server Protection**\n"
-                f"• Rate-limiting spam detection.\n"
-                f"• Anti-Invite and unauthorized link filtering.\n"
-                f"• Automated role assignment upon verification."
-            )
-        ),
-        "giveaway": (
-            "Giveaway",
-            (
-                f"🎉 `{prefix}gstart <duration> <winners> <prize>`\n"
-                f"Quick giveaway start (e.g. `{prefix}gstart 1h 1w Nitro`).\n\n"
-                f"🎉 `/giveaway start`\n"
-                f"Start with requirements (`min_messages`, `min_vc_minutes`, `role`).\n\n"
-                f"🎉 `{prefix}gend <id>` or `/giveaway end`\n"
-                f"End an active giveaway early and pick winners.\n\n"
-                f"🎉 `{prefix}greroll <id> [winners]` or `/giveaway reroll`\n"
-                f"Reroll new winners for an ended giveaway.\n\n"
-                f"🎉 `{prefix}glist` or `/giveaway list`\n"
-                f"List all currently running giveaways."
-            )
-        ),
-        "voice": (
-            "Voice",
-            (
-                f"🎧 **Voice Channel Tracking**\n"
-                f"• Automatically logs active time spent in voice channels.\n"
-                f"• Check your voice stats with `{prefix}stats` or `/user-stats`.\n"
-                f"• Enforce voice requirements for giveaways (`min_vc_minutes`)."
-            )
-        ),
-        "welcome": (
-            "Welcome",
-            (
-                f"👥 **Welcome System**\n"
-                f"• Automated greeting embeds for newly joined members.\n"
-                f"• Auto-assign initial member roles upon joining."
-            )
-        ),
-        "counter": (
-            "Counter",
-            (
-                f"⚡ `{prefix}stats [@member]` or `/user-stats`\n"
-                f"View tracked message count and total voice channel time.\n\n"
-                f"⚡ **Real-Time Activity Counters**\n"
-                f"Counts messages and voice time for requirement-locked giveaways."
-            )
-        ),
-        "voice_leveling": (
-            "Voice Leveling",
-            (
-                f"🔊 **Voice Leveling System**\n"
-                f"• Earn XP and activity ranking while hanging out in voice channels.\n"
-                f"• AFK channel detection and anti-spam voice safeguards."
-            )
-        ),
-        "ticket": (
-            "Ticket",
-            (
-                f"🎫 `{prefix}ticketsetup` or `/ticket setup`\n"
-                f"Deploy interactive ticket panel with reason modal.\n\n"
-                f"🎫 `{prefix}ticketstaff <@role>` or `/ticket setstaff`\n"
-                f"Configure staff role to ping when tickets open.\n\n"
-                f"🎫 `{prefix}ticketadd <@member>` or `/ticket add`\n"
-                f"Add a member to the current ticket.\n\n"
-                f"🎫 `{prefix}ticketremove <@member>` or `/ticket remove`\n"
-                f"Remove a member from the ticket.\n\n"
-                f"🎫 `{prefix}ticketclose` or `/ticket close`\n"
-                f"Close ticket and automatically DM dual HTML & TXT transcripts.\n\n"
-                f"🎫 `{prefix}delete` or `/ticket delete`\n"
-                f"Permanently delete closed ticket channel."
-            )
-        ),
-        "vanity": (
-            "Vanity Roles",
-            (
-                f"✨ **Vanity Roles System**\n"
-                f"• Automatically rewards members who add server invite to their status.\n"
-                f"• Real-time status detection and role sync."
-            )
-        ),
-        "guild_tags": (
-            "Guild Tags",
-            (
-                f"🏷️ **Guild Tag Roles**\n"
-                f"• Grants custom roles to members wearing server clan/guild tags."
-            )
-        ),
-        "boycott": (
-            "Boycott",
-            (
-                f"🔨 **Boycott / Blacklist Protection**\n"
-                f"• Blocks blacklisted users or alt accounts from entering giveaways."
-            )
-        ),
-        "fun": (
-            "Fun",
-            (
-                f"🎮 `{prefix}ping` — Check bot response latency\n"
-                f"🎮 Entertainment & mini-games for community engagement."
+                f"View the active server prefix.\n\n"
+                f"⚙️ `{prefix}ping` or `/ping`\n"
+                f"Check bot websocket latency and response time.\n\n"
+                f"⚙️ `{prefix}botinfo` or `/botinfo`\n"
+                f"View server count, total members, and bot statistics."
             )
         ),
     }
@@ -238,22 +151,42 @@ class HelpSelect(discord.ui.Select):
         self.prefix = prefix
         self.bot = bot
         options = [
-            discord.SelectOption(label="Home", description="Return to main category overview", emoji="🏠", value="home"),
-            discord.SelectOption(label="Admin", description="Server administration", emoji="🔧", value="admin"),
-            discord.SelectOption(label="Info", description="Information & stats", emoji="ℹ️", value="info"),
-            discord.SelectOption(label="Moderation", description="Moderation tools", emoji="🛠️", value="moderation"),
-            discord.SelectOption(label="Utility", description="Useful utilities", emoji="⚙️", value="utility"),
-            discord.SelectOption(label="AutoMod", description="Automated moderation", emoji="🤖", value="automod"),
-            discord.SelectOption(label="Giveaway", description="Host giveaways", emoji="🎉", value="giveaway"),
-            discord.SelectOption(label="Voice", description="Voice management", emoji="🎧", value="voice"),
-            discord.SelectOption(label="Welcome", description="Welcome systems", emoji="👥", value="welcome"),
-            discord.SelectOption(label="Counter", description="Activity tracking", emoji="⚡", value="counter"),
-            discord.SelectOption(label="Voice Leveling", description="Leveling for voice activity", emoji="🔊", value="voice_leveling"),
-            discord.SelectOption(label="Ticket", description="Support tickets", emoji="🎫", value="ticket"),
-            discord.SelectOption(label="Vanity Roles", description="Status role systems", emoji="✨", value="vanity"),
-            discord.SelectOption(label="Guild Tags", description="Guild tag role systems", emoji="🏷️", value="guild_tags"),
-            discord.SelectOption(label="Boycott", description="Boycott system", emoji="🔨", value="boycott"),
-            discord.SelectOption(label="Fun", description="Entertainment commands", emoji="🎮", value="fun"),
+            discord.SelectOption(
+                label="Home",
+                description="Return to the category overview",
+                emoji="🏠",
+                value="home"
+            ),
+            discord.SelectOption(
+                label="Giveaways",
+                description="Interactive & requirement-based giveaways",
+                emoji="🎉",
+                value="giveaways"
+            ),
+            discord.SelectOption(
+                label="Tickets",
+                description="Support panel, staff alerts & transcripts",
+                emoji="🎫",
+                value="tickets"
+            ),
+            discord.SelectOption(
+                label="Activity Tracker",
+                description="Message & voice channel tracking",
+                emoji="📈",
+                value="activity"
+            ),
+            discord.SelectOption(
+                label="Moderation & Admin",
+                description="Server management & channel cleanup",
+                emoji="🛡️",
+                value="admin"
+            ),
+            discord.SelectOption(
+                label="Config & Utility",
+                description="Server prefix, bot latency & statistics",
+                emoji="⚙️",
+                value="utility"
+            ),
         ]
         super().__init__(
             placeholder="Select a command category...",
@@ -360,7 +293,18 @@ class Settings(commands.Cog):
         
         if section:
             sec = section.lower().strip()
-            embed = get_category_embed(sec, prefix, self.bot)
+            if sec in ["giveaway", "giveaways", "gstart"]:
+                embed = get_category_embed("giveaways", prefix, self.bot)
+            elif sec in ["ticket", "tickets"]:
+                embed = get_category_embed("tickets", prefix, self.bot)
+            elif sec in ["activity", "tracker", "stats", "counter"]:
+                embed = get_category_embed("activity", prefix, self.bot)
+            elif sec in ["admin", "mod", "moderation"]:
+                embed = get_category_embed("admin", prefix, self.bot)
+            elif sec in ["setting", "settings", "utility", "config", "prefix"]:
+                embed = get_category_embed("utility", prefix, self.bot)
+            else:
+                embed = get_home_embed(prefix, self.bot)
         else:
             embed = get_home_embed(prefix, self.bot)
 
