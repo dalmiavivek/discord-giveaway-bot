@@ -49,13 +49,21 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
         support_role = None
         if settings.get("support_role_id"):
             support_role = guild.get_role(settings["support_role_id"])
-            if support_role:
-                overwrites[support_role] = discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
-                    attach_files=True
-                )
+
+        # Auto-detect role named "Staff", "Support", "Admin", or "Moderator" if not explicitly configured
+        if not support_role:
+            for r in guild.roles:
+                if r.name.lower() in ["staff", "support", "admin", "moderator", "mod", "ticket staff"]:
+                    support_role = r
+                    break
+
+        if support_role:
+            overwrites[support_role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True
+            )
 
         category = None
         if settings.get("category_id"):
@@ -79,7 +87,7 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
         embed = discord.Embed(
             title=f"🎫 Ticket #{ticket_num:04d}",
             description=(
-                f"Welcome {user.mention}! Support will be with you shortly.\n\n"
+                f"Welcome {user.mention}! Support staff will be with you shortly.\n\n"
                 f"**Subject / Reason:**\n{self.reason.value}\n\n"
                 f"Use the buttons below to manage this ticket."
             ),
@@ -88,11 +96,13 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
         )
         embed.set_footer(text="Click 'Close' to end this ticket and generate a transcript.")
 
-        ping_str = f"{user.mention}"
+        # Explicitly ping staff role so staff receive instant push / audio notification
         if support_role:
-            ping_str += f" | {support_role.mention}"
+            ping_content = f"{support_role.mention} 🔔 **New Ticket Alert!** {user.mention} opened a ticket."
+        else:
+            ping_content = f"{user.mention}"
 
-        await ticket_channel.send(content=ping_str, embed=embed, view=TicketControlView())
+        await ticket_channel.send(content=ping_content, embed=embed, view=TicketControlView())
 
         await interaction.followup.send(
             f"✅ Your ticket has been created: {ticket_channel.mention}",
@@ -179,7 +189,7 @@ class TicketControlView(discord.ui.View):
                 log_embed = discord.Embed(
                     title=f"📋 Ticket Closed: #{ticket['ticket_number']:04d}",
                     description=(
-                        f"**User:** <@{ticket['user_id']}>\n"
+                        f"**Creator:** <@{ticket['user_id']}>\n"
                         f"**Closed By:** {interaction.user.mention}\n"
                         f"**Channel:** {interaction.channel.name}"
                     ),
@@ -191,20 +201,36 @@ class TicketControlView(discord.ui.View):
                 except Exception:
                     pass
 
-        # Attempt to DM user
-        ticket_user = interaction.guild.get_member(ticket["user_id"])
-        if ticket_user:
+        # Send transcript directly to user DM
+        target_user = interaction.guild.get_member(ticket["user_id"])
+        if not target_user:
+            try:
+                target_user = await interaction.client.fetch_user(ticket["user_id"])
+            except Exception:
+                target_user = None
+
+        if target_user:
             try:
                 dm_file = discord.File(
                     io.BytesIO(transcript_str.encode("utf-8")),
                     filename=f"transcript-ticket-{ticket['ticket_number']:04d}.txt"
                 )
-                await ticket_user.send(
-                    f"📁 Here is the transcript for your ticket **#{ticket['ticket_number']:04d}** in **{interaction.guild.name}**:",
-                    file=dm_file
+                dm_embed = discord.Embed(
+                    title=f"📁 Ticket #{ticket['ticket_number']:04d} Closed",
+                    description=(
+                        f"Your ticket in **{interaction.guild.name}** has been closed.\n\n"
+                        f"• **Closed By:** {interaction.user.mention} (`{interaction.user.name}`)\n"
+                        f"• **A complete transcript of your conversation is attached below.**"
+                    ),
+                    color=discord.Color.green(),
+                    timestamp=datetime.utcnow()
                 )
-            except Exception:
-                pass
+                dm_embed.set_footer(text=f"{interaction.guild.name} Support")
+                await target_user.send(embed=dm_embed, file=dm_file)
+            except discord.Forbidden:
+                print(f"Cannot DM user {ticket['user_id']} (DMs closed)")
+            except Exception as e:
+                print(f"Error sending DM: {e}")
 
         await asyncio.sleep(3)
         try:
@@ -436,25 +462,56 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
                 except Exception:
                     pass
 
-        ticket_user = ctx.guild.get_member(ticket["user_id"])
-        if ticket_user:
+        # Send transcript directly to user DM
+        target_user = ctx.guild.get_member(ticket["user_id"])
+        if not target_user:
+            try:
+                target_user = await ctx.bot.fetch_user(ticket["user_id"])
+            except Exception:
+                target_user = None
+
+        if target_user:
             try:
                 dm_file = discord.File(
                     io.BytesIO(transcript_str.encode("utf-8")),
                     filename=f"transcript-ticket-{ticket['ticket_number']:04d}.txt"
                 )
-                await ticket_user.send(
-                    f"📁 Here is the transcript for your ticket **#{ticket['ticket_number']:04d}** in **{ctx.guild.name}**:",
-                    file=dm_file
+                dm_embed = discord.Embed(
+                    title=f"📁 Ticket #{ticket['ticket_number']:04d} Closed",
+                    description=(
+                        f"Your ticket in **{ctx.guild.name}** has been closed.\n\n"
+                        f"• **Closed By:** {ctx.author.mention} (`{ctx.author.name}`)\n"
+                        f"• **A complete transcript of your conversation is attached below.**"
+                    ),
+                    color=discord.Color.green(),
+                    timestamp=datetime.utcnow()
                 )
-            except Exception:
-                pass
+                dm_embed.set_footer(text=f"{ctx.guild.name} Support")
+                await target_user.send(embed=dm_embed, file=dm_file)
+            except discord.Forbidden:
+                print(f"Cannot DM user {ticket['user_id']} (DMs closed)")
+            except Exception as e:
+                print(f"Error sending DM: {e}")
 
         await asyncio.sleep(3)
         try:
             await ctx.channel.delete(reason=f"Ticket closed by {ctx.author}")
         except Exception:
             pass
+
+    @app_commands.command(name="setstaff", description="Set the staff role to be pinged when new tickets open")
+    @app_commands.describe(role="Staff/Support role to ping")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def ticket_set_staff(self, interaction: discord.Interaction, role: discord.Role):
+        database.set_support_role(interaction.guild_id, role.id)
+        await interaction.response.send_message(f"✅ Staff role set to {role.mention}! Staff will now be automatically pinged whenever a new ticket is opened.")
+
+    @commands.command(name="ticketstaff", aliases=["setstaff"])
+    @commands.has_permissions(manage_guild=True)
+    async def prefix_ticket_set_staff(self, ctx: commands.Context, role: discord.Role):
+        """Set staff role: !ticketstaff @Role"""
+        database.set_support_role(ctx.guild.id, role.id)
+        await ctx.send(f"✅ Staff role set to {role.mention}! Staff will now be automatically pinged whenever a new ticket is opened.")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Ticket(bot))

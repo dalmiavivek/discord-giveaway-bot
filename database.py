@@ -337,3 +337,13 @@ def close_ticket(channel_id: int, closed_by: int):
         """, (time.time(), closed_by, channel_id))
         conn.commit()
 
+def set_support_role(guild_id: int, role_id: int):
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO ticket_settings (guild_id, support_role_id, ticket_counter)
+            VALUES (?, ?, 0)
+            ON CONFLICT(guild_id) DO UPDATE SET support_role_id = ?
+        """, (guild_id, role_id, role_id))
+        conn.commit()
+
+
