@@ -20,22 +20,13 @@ def get_banner_url(bot: commands.Bot) -> str:
         return bot.user.banner.url
     return DEFAULT_BANNER_URL
 
-def get_creator_name(bot: commands.Bot) -> str:
-    env_creator = os.getenv("BOT_CREATOR")
-    if env_creator:
-        return env_creator
-    if getattr(bot, "application", None) and getattr(bot.application, "owner", None):
-        return bot.application.owner.name
-    return "dalmiavivek"
-
 def get_home_embed(prefix: str, bot: commands.Bot) -> discord.Embed:
     bot_name = bot.user.display_name if bot.user else "LoveAffair"
-    creator = get_creator_name(bot)
     banner_url = get_banner_url(bot)
 
     description = (
         f"I'm **{bot_name}**, your ultimate Discord companion!\n"
-        f"Created by `{creator}`. My Prefix for this server is `{prefix}`\n\n"
+        f"My Prefix for this server is `{prefix}`\n\n"
         f"> **Command Categories**\n\n"
         f"🎉 **Giveaways** — Interactive & requirement-based giveaways\n"
         f"🎫 **Tickets** — Support panel, staff alerts & dual transcripts\n"
