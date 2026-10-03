@@ -71,6 +71,8 @@ def get_category_embed(category: str, prefix: str, bot: commands.Bot) -> discord
                 f"Deploy the interactive ticket creation panel with reason modal.\n\n"
                 f"🎫 `{prefix}ticketstaff <@role>` or `/ticket setstaff`\n"
                 f"Configure the staff role to receive pings when tickets open.\n\n"
+                f"🎫 `{prefix}rename <new-name>` or `/ticket rename`\n"
+                f"Rename current ticket channel (also via `✏️ Rename` button).\n\n"
                 f"🎫 `{prefix}ticketadd <@member>` or `/ticket add`\n"
                 f"Add a member to the current ticket channel.\n\n"
                 f"🎫 `{prefix}ticketremove <@member>` or `/ticket remove`\n"

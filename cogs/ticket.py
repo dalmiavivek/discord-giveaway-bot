@@ -1,3 +1,4 @@
+import re
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -8,6 +9,43 @@ from datetime import datetime
 from typing import Optional
 import database
 from transcript_generator import generate_html_transcript, generate_txt_transcript
+
+class TicketRenameModal(discord.ui.Modal, title="Rename Ticket Channel"):
+    new_name = discord.ui.TextInput(
+        label="New Ticket Channel Name",
+        style=discord.TextStyle.short,
+        placeholder="e.g. claim-nitro, resolved, vip-help",
+        required=True,
+        max_length=100
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
+            return
+
+        clean = re.sub(r"[^a-zA-Z0-9_\-]", "-", self.new_name.value.strip().lower()).strip("-")
+        if not clean:
+            await interaction.response.send_message("❌ Please provide a valid channel name.", ephemeral=True)
+            return
+
+        clean = clean[:100]
+        old_name = interaction.channel.name
+
+        try:
+            await interaction.channel.edit(name=clean, reason=f"Ticket renamed by {interaction.user}")
+            embed = discord.Embed(
+                title="✏️ Ticket Renamed",
+                description=f"Ticket channel was renamed from `#{old_name}` to **#{clean}** by {interaction.user.mention}.",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+            await interaction.response.send_message(embed=embed)
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ Bot lacks permission to edit channel names.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to rename channel: {e}", ephemeral=True)
 
 class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
     reason = discord.ui.TextInput(
@@ -296,6 +334,27 @@ class TicketControlView(discord.ui.View):
         file = await generate_txt_transcript(interaction.channel, ticket)
         await interaction.followup.send("📄 **Here is your TXT transcript:**", file=file)
 
+    @discord.ui.button(
+        label="✏️ Rename",
+        style=discord.ButtonStyle.primary,
+        custom_id="ticket:rename"
+    )
+    async def rename_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
+            return
+
+        if not interaction.user.guild_permissions.manage_channels:
+            settings = database.get_ticket_settings(interaction.guild_id)
+            staff_role_id = settings.get("support_role_id")
+            user_role_ids = [r.id for r in interaction.user.roles]
+            if not staff_role_id or staff_role_id not in user_role_ids:
+                await interaction.response.send_message("❌ Only support staff can rename ticket channels.", ephemeral=True)
+                return
+
+        await interaction.response.send_modal(TicketRenameModal())
+
 class ClosedTicketControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -379,6 +438,27 @@ class ClosedTicketControlView(discord.ui.View):
 
         file = await generate_txt_transcript(interaction.channel, ticket)
         await interaction.followup.send("📄 **Here is your TXT transcript:**", file=file)
+
+    @discord.ui.button(
+        label="✏️ Rename",
+        style=discord.ButtonStyle.primary,
+        custom_id="ticket:closed_rename"
+    )
+    async def closed_rename_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
+            return
+
+        if not interaction.user.guild_permissions.manage_channels:
+            settings = database.get_ticket_settings(interaction.guild_id)
+            staff_role_id = settings.get("support_role_id")
+            user_role_ids = [r.id for r in interaction.user.roles]
+            if not staff_role_id or staff_role_id not in user_role_ids:
+                await interaction.response.send_message("❌ Only support staff can rename ticket channels.", ephemeral=True)
+                return
+
+        await interaction.response.send_modal(TicketRenameModal())
 
 class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands for managing the support ticket system"):
     def __init__(self, bot: commands.Bot):
@@ -677,6 +757,68 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
         """Set staff role: !ticketstaff @Role"""
         database.set_support_role(ctx.guild.id, role.id)
         await ctx.send(f"✅ Staff role set to {role.mention}! Staff will now be automatically pinged whenever a new ticket is opened.")
+
+    @app_commands.command(name="rename", description="Rename the current ticket channel")
+    @app_commands.describe(new_name="New name for the ticket channel (e.g. claim-nitro or issue-resolved)")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def ticket_rename_cmd(self, interaction: discord.Interaction, new_name: str):
+        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
+            return
+
+        clean = re.sub(r"[^a-zA-Z0-9_\-]", "-", new_name.strip().lower()).strip("-")
+        if not clean:
+            await interaction.response.send_message("❌ Please provide a valid channel name.", ephemeral=True)
+            return
+
+        clean = clean[:100]
+        old_name = interaction.channel.name
+
+        try:
+            await interaction.channel.edit(name=clean, reason=f"Ticket renamed by {interaction.user}")
+            embed = discord.Embed(
+                title="✏️ Ticket Renamed",
+                description=f"Ticket channel was renamed from `#{old_name}` to **#{clean}** by {interaction.user.mention}.",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+            await interaction.response.send_message(embed=embed)
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ Bot lacks permission to edit channel names.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to rename channel: {e}", ephemeral=True)
+
+    @commands.command(name="rename", aliases=["ticketrename", "trename"])
+    @commands.has_permissions(manage_channels=True)
+    async def prefix_ticket_rename(self, ctx: commands.Context, *, new_name: str):
+        """Rename the current ticket channel: !rename <new-name>"""
+        ticket = database.get_ticket_by_channel(ctx.channel.id)
+        if not ticket:
+            await ctx.send("❌ This command can only be used inside a ticket channel.")
+            return
+
+        clean = re.sub(r"[^a-zA-Z0-9_\-]", "-", new_name.strip().lower()).strip("-")
+        if not clean:
+            await ctx.send("❌ Please provide a valid channel name.")
+            return
+
+        clean = clean[:100]
+        old_name = ctx.channel.name
+
+        try:
+            await ctx.channel.edit(name=clean, reason=f"Ticket renamed by {ctx.author}")
+            embed = discord.Embed(
+                title="✏️ Ticket Renamed",
+                description=f"Ticket channel was renamed from `#{old_name}` to **#{clean}** by {ctx.author.mention}.",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+            await ctx.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("❌ Bot lacks permission to edit channel names.")
+        except Exception as e:
+            await ctx.send(f"❌ Failed to rename channel: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Ticket(bot))
