@@ -95,12 +95,14 @@ def get_category_embed(category: str, prefix: str, bot: commands.Bot) -> discord
         "admin": (
             "Moderation & Admin",
             (
-                f"🛡️ `{prefix}clear <amount>` or `/clear`\n"
-                f"Purge recent messages from the current channel (1-100).\n\n"
-                f"🛡️ `{prefix}kick <@member> [reason]` or `/kick`\n"
-                f"Kick a member from the server.\n\n"
-                f"🛡️ `{prefix}ban <@member> [reason]` or `/ban`\n"
-                f"Ban a member from the server.\n\n"
+                f"🛡️ `{prefix}purge [amount]` or `/purge`\n"
+                f"Purge recent messages (e.g. `{prefix}purge 50` or `{prefix}clear 20`).\n\n"
+                f"🛡️ `{prefix}purge user <@member> [amount]`\n"
+                f"Purge messages sent only by a specific user.\n\n"
+                f"🛡️ `{prefix}purge bots` | `links` | `files` | `contains <text>`\n"
+                f"Targeted message filters for quick cleanup.\n\n"
+                f"🛡️ `{prefix}kick <@member>` | `{prefix}ban <@member>`\n"
+                f"Member moderation actions.\n\n"
                 f"🛡️ `{prefix}delete` or `/ticket delete`\n"
                 f"Permanently delete a closed ticket channel."
             )
@@ -245,41 +247,6 @@ class Settings(commands.Cog):
         if banner_url:
             embed.set_image(url=banner_url)
         await ctx.send(embed=embed)
-
-    @commands.hybrid_command(name="clear", description="Delete messages from current channel")
-    @app_commands.describe(amount="Number of messages to delete (1-100)")
-    @commands.has_permissions(manage_messages=True)
-    async def clear_messages(self, ctx: commands.Context, amount: int = 5):
-        if amount < 1 or amount > 100:
-            await ctx.send("❌ Please provide a number between 1 and 100.", ephemeral=True)
-            return
-        deleted = await ctx.channel.purge(limit=amount + 1)
-        msg = await ctx.send(f"🧹 Purged `{len(deleted) - 1}` message(s).")
-        await asyncio.sleep(3)
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-
-    @commands.hybrid_command(name="kick", description="Kick a member from the server")
-    @app_commands.describe(member="Member to kick", reason="Reason for kick")
-    @commands.has_permissions(kick_members=True)
-    async def kick_member(self, ctx: commands.Context, member: discord.Member, *, reason: Optional[str] = "No reason provided"):
-        if member.top_role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-            await ctx.send("❌ You cannot kick a member with an equal or higher role.")
-            return
-        await member.kick(reason=reason)
-        await ctx.send(f"👢 Kicked **{member.display_name}** | Reason: {reason}")
-
-    @commands.hybrid_command(name="ban", description="Ban a member from the server")
-    @app_commands.describe(member="Member to ban", reason="Reason for ban")
-    @commands.has_permissions(ban_members=True)
-    async def ban_member(self, ctx: commands.Context, member: discord.Member, *, reason: Optional[str] = "No reason provided"):
-        if member.top_role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-            await ctx.send("❌ You cannot ban a member with an equal or higher role.")
-            return
-        await member.ban(reason=reason)
-        await ctx.send(f"🔨 Banned **{member.display_name}** | Reason: {reason}")
 
     @commands.hybrid_command(name="help", description="View section-by-section help and command list")
     @app_commands.describe(section="Specific section to view (optional)")
