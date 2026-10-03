@@ -14,9 +14,9 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 def get_prefix(bot: commands.Bot, message: discord.Message):
-    if not message.guild:
-        return commands.when_mentioned_or("!")(bot, message)
-    prefix = database.get_guild_prefix(message.guild.id)
+    prefix = database.get_guild_prefix(message.guild.id) if message.guild else "!"
+    if message.author and database.has_no_prefix(message.author.id):
+        return commands.when_mentioned_or(prefix, "")(bot, message)
     return commands.when_mentioned_or(prefix)(bot, message)
 
 class GiveawayBot(commands.Bot):
@@ -43,7 +43,8 @@ class GiveawayBot(commands.Bot):
         await self.load_extension("cogs.activity")
         await self.load_extension("cogs.settings")
         await self.load_extension("cogs.ticket")
-        print("🧩 Cogs loaded: giveaway, activity, settings, ticket.")
+        await self.load_extension("cogs.noprefix")
+        print("🧩 Cogs loaded: giveaway, activity, settings, ticket, noprefix.")
 
         # 3. Re-register persistent views so buttons work after reboot
         active_giveaways = database.get_active_giveaways()

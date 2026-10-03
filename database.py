@@ -78,6 +78,20 @@ def init_db():
                 closed_by INTEGER
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS no_prefix (
+                user_id INTEGER PRIMARY KEY,
+                added_by INTEGER NOT NULL,
+                expires_at REAL,
+                created_at REAL NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS np_managers (
+                user_id INTEGER PRIMARY KEY,
+                added_at REAL NOT NULL
+            )
+        """)
         conn.commit()
 
 def create_giveaway(
@@ -354,6 +368,81 @@ def reopen_ticket(channel_id: int):
             WHERE channel_id = ?
         """, (channel_id,))
         conn.commit()
+
+# --- No-Prefix (NPR) System ---
+
+def add_no_prefix(user_id: int, added_by: int, days: Optional[float] = None) -> Optional[float]:
+    expires_at = time.time() + (days * 86400) if days and days > 0 else None
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO no_prefix (user_id, added_by, expires_at, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                added_by = excluded.added_by,
+                expires_at = excluded.expires_at,
+                created_at = excluded.created_at
+        """, (user_id, added_by, expires_at, time.time()))
+        conn.commit()
+    return expires_at
+
+def remove_no_prefix(user_id: int) -> bool:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM no_prefix WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def has_no_prefix(user_id: int) -> bool:
+    with get_connection() as conn:
+        row = conn.execute("SELECT expires_at FROM no_prefix WHERE user_id = ?", (user_id,)).fetchone()
+        if not row:
+            return False
+        expires_at = row["expires_at"]
+        if expires_at is not None and time.time() > expires_at:
+            conn.execute("DELETE FROM no_prefix WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return False
+        return True
+
+def get_no_prefix_user(user_id: int) -> Optional[Dict[str, Any]]:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM no_prefix WHERE user_id = ?", (user_id,)).fetchone()
+        if not row:
+            return None
+        expires_at = row["expires_at"]
+        if expires_at is not None and time.time() > expires_at:
+            conn.execute("DELETE FROM no_prefix WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return None
+        return dict(row)
+
+def get_all_no_prefix() -> List[Dict[str, Any]]:
+    now = time.time()
+    with get_connection() as conn:
+        conn.execute("DELETE FROM no_prefix WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
+        conn.commit()
+        rows = conn.execute("SELECT * FROM no_prefix ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+def get_np_managers() -> List[int]:
+    with get_connection() as conn:
+        rows = conn.execute("SELECT user_id FROM np_managers").fetchall()
+        return [r["user_id"] for r in rows]
+
+def add_np_manager(user_id: int) -> bool:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO np_managers (user_id, added_at) VALUES (?, ?)", (user_id, time.time()))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def remove_np_manager(user_id: int) -> bool:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM np_managers WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
 
 
 
