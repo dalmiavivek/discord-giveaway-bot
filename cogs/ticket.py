@@ -150,16 +150,32 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
         )
 
 class TicketPanelView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, label: str = "Open Ticket", emoji: Optional[str] = None):
         super().__init__(timeout=None)
+        self.clear_items()
 
-    @discord.ui.button(
-        label="Open Ticket",
-        emoji=get_button_emoji("TICKET_OPEN", "📩"),
-        style=discord.ButtonStyle.primary,
-        custom_id="ticket:create"
-    )
-    async def open_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        btn_emoji = None
+        if emoji:
+            if emoji.startswith("<") and emoji.endswith(">"):
+                try:
+                    btn_emoji = discord.PartialEmoji.from_str(emoji)
+                except Exception:
+                    btn_emoji = emoji
+            else:
+                btn_emoji = emoji
+        else:
+            btn_emoji = get_button_emoji("TICKET_OPEN", "✅")
+
+        button = discord.ui.Button(
+            label=label,
+            emoji=btn_emoji,
+            style=discord.ButtonStyle.secondary,  # Sleek dark charcoal style matching Discord dark mode
+            custom_id="ticket:create"
+        )
+        button.callback = self.open_ticket_callback
+        self.add_item(button)
+
+    async def open_ticket_callback(self, interaction: discord.Interaction):
         # Check if user already has an active open ticket
         existing = database.get_user_open_ticket(interaction.guild_id, interaction.user.id)
         if existing:
@@ -471,46 +487,141 @@ class ClosedTicketControlView(discord.ui.View):
 
         await interaction.response.send_modal(TicketRenameModal())
 
+def build_ticket_panel_embed(
+    template: str = "middleman",
+    title: Optional[str] = None,
+    banner_url: Optional[str] = None
+) -> tuple[discord.Embed, str, str]:
+    """Build panel embed, button label, and button emoji matching CoinlyCasino / modern Discord style."""
+    tmpl = template.lower().strip() if template else "middleman"
+
+    if tmpl in ["middleman", "middle_man", "mm", "deal", "deals"]:
+        embed_title = title or "Request Middleman"
+        embed = discord.Embed(
+            title=embed_title,
+            description=(
+                "**Your deal, guided from start to finish.**\n"
+                "Open a private ticket. A middleman will help both players through setup, deposits and the winner's payout.\n\n"
+                "✅ **01 · Open a ticket**\n"
+                "Request a middleman and wait for staff to claim your deal.\n\n"
+                "🤝 **02 · Agree & confirm**\n"
+                "Add the other player. Choose coins, confirm amounts, then confirm your game.\n\n"
+                "✅ **03 · Play & receive**\n"
+                "Follow the payment instructions. The winner confirms receipt to complete the deal.\n\n"
+                "**Supported Coins**\n"
+                "🪙 USDT · 🪙 SOL · 🪙 LTC · 🪙 BTC\n\n"
+                "**Ready to begin?**\n"
+                "Use the button below to open your private ticket."
+            ),
+            color=discord.Color(0x2B2D31)
+        )
+        embed.set_footer(text="Private tickets · Player confirmations · Middleman payouts")
+        btn_label = "Request Middleman"
+        btn_emoji = "✅"
+
+    elif tmpl in ["giveaway", "claim"]:
+        embed_title = title or "🎁 Claim Giveaway Prize"
+        embed = discord.Embed(
+            title=embed_title,
+            description=(
+                "**Congratulations on winning a giveaway!**\n"
+                "Open a ticket below to claim your prize from our team.\n\n"
+                "✅ **01 · Open a ticket**\n"
+                "Press the button below and paste the giveaway link or prize name.\n\n"
+                "💬 **02 · Verification & Claim**\n"
+                "Staff will verify your requirements and deliver your reward.\n\n"
+                "**Ready to begin?**\n"
+                "Use the button below to open your private claim ticket."
+            ),
+            color=discord.Color(0x2B2D31)
+        )
+        embed.set_footer(text="Fast Claiming · Fair Verification · Giveaway Staff")
+        btn_label = "Claim Prize"
+        btn_emoji = "🎁"
+
+    else:
+        embed_title = title or "🎫 Support & Assistance"
+        embed = discord.Embed(
+            title=embed_title,
+            description=(
+                "**Need assistance or have a question?**\n"
+                "Open a private ticket to chat with our staff team.\n\n"
+                "✅ **01 · Open a ticket**\n"
+                "Press the button below and briefly describe your query.\n\n"
+                "💬 **02 · Staff Support**\n"
+                "A private channel will be created and staff will assist you shortly.\n\n"
+                "**Ready to begin?**\n"
+                "Use the button below to open your private ticket."
+            ),
+            color=discord.Color(0x2B2D31)
+        )
+        embed.set_footer(text="Private Support · Safe & Secure · 24/7 Staff")
+        btn_label = "Open Ticket"
+        btn_emoji = "✅"
+
+    banner = banner_url or "https://raw.githubusercontent.com/dalmiavivek/discord-giveaway-bot/main/assets/banner.png"
+    if banner:
+        embed.set_image(url=banner)
+
+    return embed, btn_label, btn_emoji
+
 class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands for managing the support ticket system"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @app_commands.command(name="setup", description="Deploy the interactive ticket creation panel")
     @app_commands.describe(
+        template="Style template for the panel",
         channel="Channel to post the ticket panel into (default: current channel)",
+        button_label="Custom text on the button (e.g. Request Middleman or Open Ticket)",
+        button_emoji="Custom emoji on the button (e.g. <:check:123...> or ✅)",
+        banner_url="Image URL to display at the bottom of the embed",
+        title="Custom panel title",
         category="Category where new ticket channels will be created",
         support_role="Role that gets pinged and has access to tickets",
         log_channel="Channel where closed ticket transcripts will be posted"
     )
+    @app_commands.choices(template=[
+        app_commands.Choice(name="🌊 Middleman & Deals (CoinlyCasino Style)", value="middleman"),
+        app_commands.Choice(name="🎫 General Support", value="support"),
+        app_commands.Choice(name="🎁 Giveaway Prize Claim", value="giveaway"),
+    ])
     @app_commands.checks.has_permissions(manage_guild=True)
     async def ticket_setup(
         self,
         interaction: discord.Interaction,
+        template: Optional[str] = "middleman",
         channel: Optional[discord.TextChannel] = None,
+        button_label: Optional[str] = None,
+        button_emoji: Optional[str] = None,
+        banner_url: Optional[str] = None,
+        title: Optional[str] = None,
         category: Optional[discord.CategoryChannel] = None,
         support_role: Optional[discord.Role] = None,
         log_channel: Optional[discord.TextChannel] = None
     ):
         target_channel = channel or interaction.channel
         
+        embed, default_label, default_emoji = build_ticket_panel_embed(
+            template=template or "middleman",
+            title=title,
+            banner_url=banner_url
+        )
+
+        final_label = button_label or default_label
+        final_emoji = button_emoji or default_emoji
+
         database.set_ticket_settings(
             guild_id=interaction.guild_id,
             category_id=category.id if category else None,
             support_role_id=support_role.id if support_role else None,
-            log_channel_id=log_channel.id if log_channel else None
+            log_channel_id=log_channel.id if log_channel else None,
+            button_label=final_label,
+            button_emoji=final_emoji,
+            banner_url=banner_url
         )
 
-        embed = discord.Embed(
-            title="🎫 Support Tickets",
-            description=(
-                "Need assistance or want to claim a giveaway prize?\n\n"
-                "Click the **📩 Open Ticket** button below to create a private channel with our staff team!"
-            ),
-            color=discord.Color.brand_green()
-        )
-        embed.set_footer(text="Staff will assist you as soon as possible.")
-
-        view = TicketPanelView()
+        view = TicketPanelView(label=final_label, emoji=final_emoji)
         await target_channel.send(embed=embed, view=view)
         await interaction.response.send_message(
             f"✅ Ticket panel deployed successfully in {target_channel.mention}!",
@@ -562,20 +673,22 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
 
     @commands.command(name="ticketsetup")
     @commands.has_permissions(manage_guild=True)
-    async def prefix_ticket_setup(self, ctx: commands.Context):
-        """Setup ticket panel in current channel: !ticketsetup"""
-        embed = discord.Embed(
-            title="🎫 Support Tickets",
-            description=(
-                "Need assistance or want to claim a giveaway prize?\n\n"
-                "Click the **📩 Open Ticket** button below to create a private channel with our staff team!"
-            ),
-            color=discord.Color.brand_green()
+    async def prefix_ticket_setup(self, ctx: commands.Context, template: Optional[str] = "middleman"):
+        """Setup ticket panel: !ticketsetup [middleman|support|giveaway]"""
+        embed, default_label, default_emoji = build_ticket_panel_embed(template=template or "middleman")
+
+        database.set_ticket_settings(
+            guild_id=ctx.guild.id,
+            button_label=default_label,
+            button_emoji=default_emoji
         )
-        embed.set_footer(text="Staff will assist you as soon as possible.")
-        view = TicketPanelView()
+
+        view = TicketPanelView(label=default_label, emoji=default_emoji)
         await ctx.send(embed=embed, view=view)
-        await ctx.message.delete()
+        try:
+            await ctx.message.delete()
+        except discord.DiscordException:
+            pass
 
     @commands.command(name="ticketadd")
     @commands.has_permissions(manage_messages=True)

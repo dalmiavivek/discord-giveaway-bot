@@ -62,9 +62,22 @@ def init_db():
                 category_id INTEGER,
                 support_role_id INTEGER,
                 log_channel_id INTEGER,
-                ticket_counter INTEGER NOT NULL DEFAULT 0
+                ticket_counter INTEGER NOT NULL DEFAULT 0,
+                button_label TEXT DEFAULT 'Open Ticket',
+                button_emoji TEXT DEFAULT '✅',
+                banner_url TEXT
             )
         """)
+        # Safe migration for existing databases
+        for col, col_def in [
+            ("button_label", "TEXT DEFAULT 'Open Ticket'"),
+            ("button_emoji", "TEXT DEFAULT '✅'"),
+            ("banner_url", "TEXT")
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE ticket_settings ADD COLUMN {col} {col_def}")
+            except sqlite3.OperationalError:
+                pass
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tickets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -294,17 +307,29 @@ def set_ticket_settings(
     guild_id: int,
     category_id: Optional[int] = None,
     support_role_id: Optional[int] = None,
-    log_channel_id: Optional[int] = None
+    log_channel_id: Optional[int] = None,
+    button_label: Optional[str] = None,
+    button_emoji: Optional[str] = None,
+    banner_url: Optional[str] = None
 ):
     with get_connection() as conn:
         conn.execute("""
-            INSERT INTO ticket_settings (guild_id, category_id, support_role_id, log_channel_id, ticket_counter)
-            VALUES (?, ?, ?, ?, 0)
+            INSERT INTO ticket_settings (
+                guild_id, category_id, support_role_id, log_channel_id,
+                ticket_counter, button_label, button_emoji, banner_url
+            )
+            VALUES (?, ?, ?, ?, 0, COALESCE(?, 'Open Ticket'), COALESCE(?, '✅'), ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 category_id = COALESCE(?, category_id),
                 support_role_id = COALESCE(?, support_role_id),
-                log_channel_id = COALESCE(?, log_channel_id)
-        """, (guild_id, category_id, support_role_id, log_channel_id, category_id, support_role_id, log_channel_id))
+                log_channel_id = COALESCE(?, log_channel_id),
+                button_label = COALESCE(?, button_label),
+                button_emoji = COALESCE(?, button_emoji),
+                banner_url = COALESCE(?, banner_url)
+        """, (
+            guild_id, category_id, support_role_id, log_channel_id, button_label, button_emoji, banner_url,
+            category_id, support_role_id, log_channel_id, button_label, button_emoji, banner_url
+        ))
         conn.commit()
 
 def increment_ticket_counter(guild_id: int) -> int:
