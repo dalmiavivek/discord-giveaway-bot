@@ -4,8 +4,8 @@ from discord.ext import commands, tasks
 import time
 import re
 import random
-from typing import Optional, List
 import database
+from emojis import get_button_emoji
 
 def parse_duration(duration_str: str) -> Optional[int]:
     """Parse duration strings like '1d', '2h30m', '45s' into total seconds."""
@@ -44,7 +44,11 @@ class GiveawayView(discord.ui.View):
         # Custom ID ensures persistence across bot restarts
         self.enter_button.custom_id = f"giveaway_enter:{giveaway_id}"
 
-    @discord.ui.button(label="🎉 Enter Giveaway", style=discord.ButtonStyle.success)
+    @discord.ui.button(
+        label="Enter Giveaway",
+        emoji=get_button_emoji("GIVEAWAY_ENTER", "🎉"),
+        style=discord.ButtonStyle.success
+    )
     async def enter_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         gw = database.get_giveaway(self.giveaway_id)
         if not gw or gw["ended"]:

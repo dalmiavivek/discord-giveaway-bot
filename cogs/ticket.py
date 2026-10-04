@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional
 import database
 from transcript_generator import generate_html_transcript, generate_txt_transcript
+from emojis import get_button_emoji
 
 class TicketRenameModal(discord.ui.Modal, title="Rename Ticket Channel"):
     new_name = discord.ui.TextInput(
@@ -153,7 +154,8 @@ class TicketPanelView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="📩 Open Ticket",
+        label="Open Ticket",
+        emoji=get_button_emoji("TICKET_OPEN", "📩"),
         style=discord.ButtonStyle.primary,
         custom_id="ticket:create"
     )
@@ -180,7 +182,8 @@ class TicketControlView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="🔒 Close",
+        label="Close",
+        emoji=get_button_emoji("TICKET_CLOSE", "🔒"),
         style=discord.ButtonStyle.danger,
         custom_id="ticket:close"
     )
@@ -305,7 +308,8 @@ class TicketControlView(discord.ui.View):
         await interaction.channel.send(embed=closed_embed, view=ClosedTicketControlView())
 
     @discord.ui.button(
-        label="🌐 HTML Transcript",
+        label="HTML Transcript",
+        emoji=get_button_emoji("TICKET_HTML", "🌐"),
         style=discord.ButtonStyle.secondary,
         custom_id="ticket:html_transcript"
     )
@@ -320,7 +324,8 @@ class TicketControlView(discord.ui.View):
         await interaction.followup.send("📄 **Here is your HTML transcript:**\n*(Open in any browser for a Discord-styled view)*", file=file)
 
     @discord.ui.button(
-        label="📄 TXT Transcript",
+        label="TXT Transcript",
+        emoji=get_button_emoji("TICKET_TXT", "📄"),
         style=discord.ButtonStyle.secondary,
         custom_id="ticket:txt_transcript"
     )
@@ -335,7 +340,8 @@ class TicketControlView(discord.ui.View):
         await interaction.followup.send("📄 **Here is your TXT transcript:**", file=file)
 
     @discord.ui.button(
-        label="✏️ Rename",
+        label="Rename",
+        emoji=get_button_emoji("TICKET_RENAME", "✏️"),
         style=discord.ButtonStyle.primary,
         custom_id="ticket:rename"
     )
@@ -360,7 +366,8 @@ class ClosedTicketControlView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="🗑️ Delete Ticket",
+        label="Delete Ticket",
+        emoji=get_button_emoji("TICKET_DELETE", "🗑️"),
         style=discord.ButtonStyle.danger,
         custom_id="ticket:delete"
     )
@@ -378,7 +385,8 @@ class ClosedTicketControlView(discord.ui.View):
             pass
 
     @discord.ui.button(
-        label="🔓 Re-open",
+        label="Re-open",
+        emoji=get_button_emoji("TICKET_REOPEN", "🔓"),
         style=discord.ButtonStyle.success,
         custom_id="ticket:reopen"
     )
@@ -410,7 +418,8 @@ class ClosedTicketControlView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=TicketControlView())
 
     @discord.ui.button(
-        label="🌐 HTML Transcript",
+        label="HTML Transcript",
+        emoji=get_button_emoji("TICKET_HTML", "🌐"),
         style=discord.ButtonStyle.secondary,
         custom_id="ticket:closed_html"
     )
@@ -425,7 +434,8 @@ class ClosedTicketControlView(discord.ui.View):
         await interaction.followup.send("📄 **Here is your HTML transcript:**\n*(Open in any browser for a Discord-styled view)*", file=file)
 
     @discord.ui.button(
-        label="📄 TXT Transcript",
+        label="TXT Transcript",
+        emoji=get_button_emoji("TICKET_TXT", "📄"),
         style=discord.ButtonStyle.secondary,
         custom_id="ticket:closed_txt"
     )
@@ -440,7 +450,8 @@ class ClosedTicketControlView(discord.ui.View):
         await interaction.followup.send("📄 **Here is your TXT transcript:**", file=file)
 
     @discord.ui.button(
-        label="✏️ Rename",
+        label="Rename",
+        emoji=get_button_emoji("TICKET_RENAME", "✏️"),
         style=discord.ButtonStyle.primary,
         custom_id="ticket:closed_rename"
     )
