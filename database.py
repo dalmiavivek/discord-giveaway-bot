@@ -1,8 +1,26 @@
+import os
 import sqlite3
 import time
 from typing import Optional, List, Dict, Any
 
-DB_PATH = "giveaways.db"
+def get_db_path() -> str:
+    if os.getenv("DATABASE_PATH"):
+        path = os.getenv("DATABASE_PATH")
+        dirname = os.path.dirname(os.path.abspath(path))
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        return path
+    
+    railway_volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+    if railway_volume and os.path.exists(railway_volume):
+        return os.path.join(railway_volume, "giveaways.db")
+
+    if os.path.exists("/data") and os.access("/data", os.W_OK):
+        return "/data/giveaways.db"
+
+    return "giveaways.db"
+
+DB_PATH = get_db_path()
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)

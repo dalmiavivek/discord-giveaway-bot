@@ -6,10 +6,114 @@ import io
 import time
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 import database
 from transcript_generator import generate_html_transcript, generate_txt_transcript
 from emojis import get_button_emoji
+
+async def recover_ticket_from_channel(channel: discord.TextChannel) -> Optional[Dict[str, Any]]:
+    """Self-heal / reconstruct ticket in database if it was lost due to bot restart."""
+    if not isinstance(channel, discord.TextChannel):
+        return None
+
+    # Check if channel is already in database
+    ticket = database.get_ticket_by_channel(channel.id)
+    if ticket:
+        return ticket
+
+    is_ticket = False
+    ticket_num = 1
+    user_id = None
+
+    # 1. Check topic: topic=f"Ticket #{ticket_num:04d} | Creator: {user.display_name} ({user.id})"
+    if channel.topic:
+        m = re.search(r"Ticket #(\d+).*?\((\d+)\)", channel.topic)
+        if m:
+            is_ticket = True
+            ticket_num = int(m.group(1))
+            user_id = int(m.group(2))
+        elif "ticket" in channel.topic.lower():
+            is_ticket = True
+
+    # 2. Check channel name: e.g. "ticket-username-0001" or "closed-username-0001"
+    if not is_ticket:
+        m_name = re.match(r"(?:ticket|closed)-.*?(\d+)", channel.name)
+        if m_name or channel.name.startswith(("ticket-", "closed-")):
+            is_ticket = True
+            if m_name:
+                try:
+                    ticket_num = int(m_name.group(1))
+                except Exception:
+                    ticket_num = 1
+
+    # 3. Check if inside configured ticket category
+    settings = database.get_ticket_settings(channel.guild.id)
+    if not is_ticket and settings.get("category_id") and channel.category_id == settings["category_id"]:
+        is_ticket = True
+
+    # 4. Check category name if category_id wasn't set
+    if not is_ticket and channel.category and any(w in channel.category.name.lower() for w in ["ticket", "support", "claim"]):
+        is_ticket = True
+
+    if not is_ticket:
+        return None
+
+    # If user_id wasn't found from topic, look in permission overwrites
+    if not user_id:
+        for target, overwrite in channel.overwrites.items():
+            if isinstance(target, discord.Member) and not target.bot:
+                if overwrite.view_channel is True or overwrite.send_messages is True:
+                    user_id = target.id
+                    break
+
+    # If still not found, check channel message history for initial welcome embed
+    if not user_id:
+        try:
+            async for msg in channel.history(limit=10, oldest_first=True):
+                if msg.author.id == channel.guild.me.id and msg.embeds:
+                    m_user = re.search(r"<@!?(\d+)>", msg.content or (msg.embeds[0].description if msg.embeds else ""))
+                    if m_user:
+                        user_id = int(m_user.group(1))
+                        break
+        except Exception:
+            pass
+
+    # Fallback to guild owner if user_id still not found
+    if not user_id:
+        user_id = channel.guild.owner_id
+
+    # Determine status
+    status = "closed" if channel.name.startswith("closed-") else "open"
+
+    # Re-insert into database
+    with database.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO tickets (guild_id, channel_id, user_id, ticket_number, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(channel_id) DO UPDATE SET
+                status = excluded.status
+        """, (channel.guild.id, channel.id, user_id, ticket_num, status, time.time()))
+        conn.commit()
+
+    # Update ticket counter in settings if higher
+    if settings.get("ticket_counter", 0) < ticket_num:
+        with database.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO ticket_settings (guild_id, ticket_counter)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    ticket_counter = MAX(ticket_counter, ?)
+            """, (channel.guild.id, ticket_num, ticket_num))
+            conn.commit()
+
+    # If category wasn't remembered in ticket_settings, save it now!
+    if channel.category_id and not settings.get("category_id"):
+        database.set_ticket_settings(
+            guild_id=channel.guild.id,
+            category_id=channel.category_id
+        )
+
+    return database.get_ticket_by_channel(channel.id)
 
 class TicketRenameModal(discord.ui.Modal, title="Rename Ticket Channel"):
     new_name = discord.ui.TextInput(
@@ -21,7 +125,7 @@ class TicketRenameModal(discord.ui.Modal, title="Rename Ticket Channel"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -108,6 +212,14 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
         category = None
         if settings.get("category_id"):
             category = guild.get_channel(settings["category_id"])
+
+        if not category:
+            # Auto-detect category with 'ticket' or 'support' in the name
+            for cat in guild.categories:
+                if any(w in cat.name.lower() for w in ["ticket", "support", "claim"]):
+                    category = cat
+                    database.set_ticket_settings(guild.id, category_id=cat.id)
+                    break
 
         try:
             ticket_channel = await guild.create_text_channel(
@@ -204,7 +316,7 @@ class TicketControlView(discord.ui.View):
         custom_id="ticket:close"
     )
     async def close_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -331,7 +443,7 @@ class TicketControlView(discord.ui.View):
     )
     async def html_transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.followup.send("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -347,7 +459,7 @@ class TicketControlView(discord.ui.View):
     )
     async def txt_transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.followup.send("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -362,7 +474,7 @@ class TicketControlView(discord.ui.View):
         custom_id="ticket:rename"
     )
     async def rename_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -388,7 +500,7 @@ class ClosedTicketControlView(discord.ui.View):
         custom_id="ticket:delete"
     )
     async def delete_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -407,7 +519,7 @@ class ClosedTicketControlView(discord.ui.View):
         custom_id="ticket:reopen"
     )
     async def reopen_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -441,7 +553,7 @@ class ClosedTicketControlView(discord.ui.View):
     )
     async def html_transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.followup.send("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -457,7 +569,7 @@ class ClosedTicketControlView(discord.ui.View):
     )
     async def txt_transcript_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.followup.send("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -472,7 +584,7 @@ class ClosedTicketControlView(discord.ui.View):
         custom_id="ticket:closed_rename"
     )
     async def closed_rename_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This channel is not a tracked ticket.", ephemeral=True)
             return
@@ -576,7 +688,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @app_commands.describe(member="Member to add to this ticket")
     @app_commands.checks.has_permissions(manage_messages=True)
     async def ticket_add(self, interaction: discord.Interaction, member: discord.Member):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
             return
@@ -594,7 +706,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @app_commands.describe(member="Member to remove from this ticket")
     @app_commands.checks.has_permissions(manage_messages=True)
     async def ticket_remove(self, interaction: discord.Interaction, member: discord.Member):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
             return
@@ -604,7 +716,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
 
     @app_commands.command(name="close", description="Close the current ticket channel")
     async def ticket_close_cmd(self, interaction: discord.Interaction):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
             return
@@ -656,7 +768,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @commands.has_permissions(manage_messages=True)
     async def prefix_ticket_add(self, ctx: commands.Context, member: discord.Member):
         """Add user to current ticket: !ticketadd @member"""
-        ticket = database.get_ticket_by_channel(ctx.channel.id)
+        ticket = await recover_ticket_from_channel(ctx.channel)
         if not ticket:
             await ctx.send("❌ This command can only be used inside a ticket channel.")
             return
@@ -674,7 +786,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @commands.has_permissions(manage_messages=True)
     async def prefix_ticket_remove(self, ctx: commands.Context, member: discord.Member):
         """Remove user from current ticket: !ticketremove @member"""
-        ticket = database.get_ticket_by_channel(ctx.channel.id)
+        ticket = await recover_ticket_from_channel(ctx.channel)
         if not ticket:
             await ctx.send("❌ This command can only be used inside a ticket channel.")
             return
@@ -685,7 +797,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @commands.command(name="ticketclose")
     async def prefix_ticket_close(self, ctx: commands.Context):
         """Close current ticket: !ticketclose"""
-        ticket = database.get_ticket_by_channel(ctx.channel.id)
+        ticket = await recover_ticket_from_channel(ctx.channel)
         if not ticket:
             await ctx.send("❌ This command can only be used inside a ticket channel.")
             return
@@ -802,7 +914,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @app_commands.command(name="delete", description="Permanently delete the current ticket channel")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def ticket_delete_cmd(self, interaction: discord.Interaction):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
             return
@@ -818,7 +930,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @commands.has_permissions(manage_channels=True)
     async def prefix_ticket_delete(self, ctx: commands.Context):
         """Delete current ticket channel: !delete"""
-        ticket = database.get_ticket_by_channel(ctx.channel.id)
+        ticket = await recover_ticket_from_channel(ctx.channel)
         if not ticket:
             await ctx.send("❌ This command can only be used inside a ticket channel.")
             return
@@ -848,7 +960,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @app_commands.describe(new_name="New name for the ticket channel (e.g. claim-nitro or issue-resolved)")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def ticket_rename_cmd(self, interaction: discord.Interaction, new_name: str):
-        ticket = database.get_ticket_by_channel(interaction.channel_id)
+        ticket = await recover_ticket_from_channel(interaction.channel)
         if not ticket:
             await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
             return
@@ -879,7 +991,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
     @commands.has_permissions(manage_channels=True)
     async def prefix_ticket_rename(self, ctx: commands.Context, *, new_name: str):
         """Rename the current ticket channel: !rename <new-name>"""
-        ticket = database.get_ticket_by_channel(ctx.channel.id)
+        ticket = await recover_ticket_from_channel(ctx.channel)
         if not ticket:
             await ctx.send("❌ This command can only be used inside a ticket channel.")
             return
@@ -905,6 +1017,37 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
             await ctx.send("❌ Bot lacks permission to edit channel names.")
         except Exception as e:
             await ctx.send(f"❌ Failed to rename channel: {e}")
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Self-heal all tickets and auto-restore category settings on startup."""
+        recovered = 0
+        for guild in self.bot.guilds:
+            settings = database.get_ticket_settings(guild.id)
+            
+            # If category_id is missing, auto-detect category named 'tickets' or 'support'
+            if not settings.get("category_id"):
+                for cat in guild.categories:
+                    if any(w in cat.name.lower() for w in ["ticket", "support", "claim"]):
+                        database.set_ticket_settings(guild.id, category_id=cat.id)
+                        print(f"📁 Auto-detected ticket category '{cat.name}' for {guild.name}")
+                        break
+
+            # Scan channels to recover any active or closed tickets
+            for channel in guild.text_channels:
+                if (
+                    channel.name.startswith(("ticket-", "closed-"))
+                    or (channel.topic and "Ticket #" in channel.topic)
+                    or (channel.category and any(w in channel.category.name.lower() for w in ["ticket", "support"]))
+                ):
+                    existing = database.get_ticket_by_channel(channel.id)
+                    if not existing:
+                        rec = await recover_ticket_from_channel(channel)
+                        if rec:
+                            recovered += 1
+
+        if recovered > 0:
+            print(f"🛠️ Self-healed {recovered} ticket(s) after bot restart!")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Ticket(bot))
