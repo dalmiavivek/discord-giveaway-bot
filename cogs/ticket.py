@@ -1194,5 +1194,51 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
         if recovered > 0:
             print(f"🛠️ Self-healed {recovered} ticket(s) after bot restart!")
 
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        """Track whenever a ticket channel is deleted and identify who deleted it from Audit Log."""
+        if not isinstance(channel, discord.TextChannel) or not channel.name.startswith(("ticket-", "closed-")):
+            return
+
+        # Mark ticket as closed in database
+        database.close_ticket(channel.id, closed_by=0)
+
+        # Audit log lookup to detect who deleted it (e.g. Anti-Nuke bot or staff member)
+        deleter = "Unknown (Check Server Audit Log)"
+        reason = "No reason provided"
+        try:
+            await asyncio.sleep(0.5)
+            async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=5):
+                if entry.target.id == channel.id:
+                    deleter = f"{entry.user} ({entry.user.id})"
+                    reason = entry.reason or "No reason provided"
+                    break
+        except Exception as e:
+            deleter = f"Audit log inaccessible ({e})"
+
+        print(f"🚨 [CHANNEL DELETED] #{channel.name} was deleted by: {deleter} | Reason: {reason}")
+
+        # If log channel configured, notify server staff
+        settings = database.get_ticket_settings(channel.guild.id)
+        if settings.get("log_channel_id"):
+            log_ch = channel.guild.get_channel(settings["log_channel_id"])
+            if log_ch:
+                embed = discord.Embed(
+                    title="⚠️ Ticket Channel Deleted",
+                    description=(
+                        f"**Channel:** `#{channel.name}`\n"
+                        f"**Deleted By:** {deleter}\n"
+                        f"**Reason:** {reason}\n\n"
+                        f"💡 *If this channel was deleted immediately after creation by an Anti-Nuke / Security bot "
+                        f"(such as Wick, Security, or Carl-bot), please whitelist this bot or exempt it from Channel Spam limits.*"
+                    ),
+                    color=discord.Color.red(),
+                    timestamp=datetime.utcnow()
+                )
+                try:
+                    await log_ch.send(embed=embed)
+                except Exception:
+                    pass
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(Ticket(bot))
