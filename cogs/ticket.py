@@ -21,53 +21,94 @@ async def recover_ticket_from_channel(channel: discord.TextChannel) -> Optional[
     if ticket:
         return ticket
 
+    settings = database.get_ticket_settings(channel.guild.id)
     is_ticket = False
     ticket_num = 1
     user_id = None
 
-    # 1. Check topic: topic=f"Ticket #{ticket_num:04d} | Creator: {user.display_name} ({user.id})"
+    # 1. Check category
+    if channel.category:
+        if settings.get("category_id") and channel.category_id == settings["category_id"]:
+            is_ticket = True
+        elif any(w in channel.category.name.lower() for w in ["ticket", "support", "claim"]):
+            is_ticket = True
+
+    # 2. Check topic
     if channel.topic:
         m = re.search(r"Ticket #(\d+).*?\((\d+)\)", channel.topic)
         if m:
             is_ticket = True
             ticket_num = int(m.group(1))
             user_id = int(m.group(2))
-
-    # 2. Check channel name: e.g. "ticket-username-0001" or "closed-username-0001"
-    if not is_ticket:
-        m_name = re.match(r"^(?:ticket|closed)-.+?-(\d+)$", channel.name)
-        if m_name:
+        elif "ticket" in channel.topic.lower():
             is_ticket = True
+            m_num = re.search(r"Ticket #(\d+)", channel.topic, re.IGNORECASE)
+            if m_num:
+                ticket_num = int(m_num.group(1))
+            m_u = re.search(r"\((\d{15,22})\)", channel.topic)
+            if m_u:
+                user_id = int(m_u.group(1))
+
+    # 3. Check channel name: e.g. "ticket-username-0001" or "closed-username-0001"
+    if channel.name.startswith(("ticket-", "closed-")):
+        is_ticket = True
+        m_name = re.search(r"(\d+)$", channel.name)
+        if m_name and not ticket_num:
             try:
                 ticket_num = int(m_name.group(1))
             except Exception:
-                ticket_num = 1
+                pass
+
+    # 4. Check initial messages in history
+    first_bot_msg = None
+    try:
+        async for msg in channel.history(limit=5, oldest_first=True):
+            if msg.author.id == channel.guild.me.id:
+                first_bot_msg = msg
+                if msg.embeds:
+                    for emb in msg.embeds:
+                        if emb.title and "ticket" in emb.title.lower():
+                            is_ticket = True
+                            if not ticket_num:
+                                m_t = re.search(r"#(\d+)", emb.title)
+                                if m_t:
+                                    ticket_num = int(m_t.group(1))
+                        if emb.description and not user_id:
+                            m_desc = re.search(r"<@!?(\d+)>", emb.description)
+                            if m_desc:
+                                user_id = int(m_desc.group(1))
+                if msg.content and not user_id:
+                    m_mentions = re.findall(r"<@!?(\d+)>", msg.content)
+                    for uid in m_mentions:
+                        if int(uid) != channel.guild.me.id:
+                            user_id = int(uid)
+                            break
+            if is_ticket and user_id:
+                break
+    except Exception:
+        pass
 
     if not is_ticket:
         return None
 
-    # If user_id wasn't found from topic, look in permission overwrites for explicit member
+    # If user_id wasn't found, look in permission overwrites
     if not user_id:
         for target, overwrite in channel.overwrites.items():
-            if isinstance(target, discord.Member) and not target.bot:
-                if overwrite.view_channel is True or overwrite.send_messages is True:
-                    user_id = target.id
-                    break
+            if isinstance(target, discord.Role) or target.id == channel.guild.default_role.id:
+                continue
+            if target.id == channel.guild.me.id:
+                continue
+            if getattr(target, "bot", False):
+                continue
+            if overwrite.view_channel is True or overwrite.send_messages is True:
+                user_id = target.id
+                break
 
-    # If still not found, check channel message history for initial welcome embed
+    # Fallback to guild owner and 1 so tracking NEVER fails for valid ticket channels
     if not user_id:
-        try:
-            async for msg in channel.history(limit=5, oldest_first=True):
-                if msg.author.id == channel.guild.me.id and msg.embeds:
-                    m_user = re.search(r"<@!?(\d+)>", msg.content or (msg.embeds[0].description if msg.embeds else ""))
-                    if m_user:
-                        user_id = int(m_user.group(1))
-                        break
-        except Exception:
-            pass
-
-    if not user_id:
-        return None
+        user_id = channel.guild.owner_id
+    if not ticket_num:
+        ticket_num = 1
 
     # Determine status (check channel name, topic, and permissions)
     is_closed = False
@@ -170,9 +211,16 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
             channel_name = f"ticket-{clean_username[:10]}-{ticket_num:04d}"
 
             # Permission Overwrites
+            creator = guild.get_member(user.id)
+            if not creator:
+                try:
+                    creator = await guild.fetch_member(user.id)
+                except Exception:
+                    creator = user
+
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                user: discord.PermissionOverwrite(
+                creator: discord.PermissionOverwrite(
                     view_channel=True,
                     send_messages=True,
                     read_message_history=True,
@@ -214,6 +262,11 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
             category = None
             if settings.get("category_id"):
                 category = guild.get_channel(settings["category_id"])
+                if not category:
+                    try:
+                        category = await guild.fetch_channel(settings["category_id"])
+                    except Exception:
+                        category = None
 
             if not category:
                 # Auto-detect category with 'ticket' or 'support' in the name
@@ -222,6 +275,14 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
                         category = cat
                         database.set_ticket_settings(guild.id, category_id=cat.id)
                         break
+
+            if not category:
+                # Auto-create category if none exists
+                try:
+                    category = await guild.create_category("Tickets", reason="Support Ticket System")
+                    database.set_ticket_settings(guild.id, category_id=category.id)
+                except Exception:
+                    category = None
 
             ticket_channel = None
             try:
@@ -271,8 +332,18 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
 
             await ticket_channel.send(content=ping_content, embed=embed, view=TicketControlView())
 
+            # Send confirmation with direct jump button (NEVER mention channel ID to prevent #unknown)
+            jump_view = discord.ui.View()
+            jump_view.add_item(discord.ui.Button(
+                label=f"Open #{ticket_channel.name}",
+                url=ticket_channel.jump_url,
+                style=discord.ButtonStyle.link,
+                emoji="🎫"
+            ))
+
             await interaction.followup.send(
-                f"✅ Your ticket has been created: {ticket_channel.mention}",
+                f"✅ Your ticket **#{ticket_channel.name}** has been created!\n👉 [Click here to open #{ticket_channel.name}]({ticket_channel.jump_url})",
+                view=jump_view,
                 ephemeral=True
             )
         except Exception as err:
@@ -310,6 +381,12 @@ class TicketPanelView(discord.ui.View):
         existing = database.get_user_open_ticket(interaction.guild_id, interaction.user.id)
         if existing:
             ch = interaction.guild.get_channel(existing["channel_id"])
+            if not ch:
+                try:
+                    ch = await interaction.guild.fetch_channel(existing["channel_id"])
+                except Exception:
+                    ch = None
+
             # If channel doesn't exist in Discord, is deleted, or doesn't start with ticket-
             if not ch or not ch.name.startswith("ticket-"):
                 database.close_ticket(existing["channel_id"], interaction.user.id)
@@ -319,8 +396,16 @@ class TicketPanelView(discord.ui.View):
                 if not perms.view_channel or not perms.send_messages:
                     database.close_ticket(existing["channel_id"], interaction.user.id)
                 else:
+                    jump_view = discord.ui.View()
+                    jump_view.add_item(discord.ui.Button(
+                        label=f"Go to #{ch.name}",
+                        url=ch.jump_url,
+                        style=discord.ButtonStyle.link,
+                        emoji="🎫"
+                    ))
                     await interaction.response.send_message(
-                        f"❌ You already have an active ticket in {ch.mention}!",
+                        f"❌ You already have an active ticket: [#{ch.name}]({ch.jump_url})",
+                        view=jump_view,
                         ephemeral=True
                     )
                     return
