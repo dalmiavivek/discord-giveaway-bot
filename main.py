@@ -112,20 +112,23 @@ class GiveawayBot(commands.Bot):
             except Exception:
                 pass
         
-        # Set bot activity status
+        # Set bot activity status (defaults to Custom Status directly under username)
         status_text = os.getenv("BOT_STATUS_TEXT", "giveaways | !help or /giveaway")
-        activity_type_str = os.getenv("BOT_ACTIVITY_TYPE", "watching").lower()
+        activity_type_str = os.getenv("BOT_ACTIVITY_TYPE", "custom").lower()
         
         act_types = {
+            "custom": discord.ActivityType.custom,
             "playing": discord.ActivityType.playing,
             "watching": discord.ActivityType.watching,
             "listening": discord.ActivityType.listening,
             "streaming": discord.ActivityType.streaming,
             "competing": discord.ActivityType.competing,
         }
-        act_type = act_types.get(activity_type_str, discord.ActivityType.watching)
+        act_type = act_types.get(activity_type_str, discord.ActivityType.custom)
         
-        if act_type == discord.ActivityType.streaming:
+        if act_type == discord.ActivityType.custom:
+            activity = discord.CustomActivity(name=status_text)
+        elif act_type == discord.ActivityType.streaming:
             activity = discord.Streaming(name=status_text, url="https://twitch.tv/discord")
         else:
             activity = discord.Activity(type=act_type, name=status_text)

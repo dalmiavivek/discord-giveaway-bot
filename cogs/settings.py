@@ -260,6 +260,7 @@ class Settings(commands.Cog):
     )
     @app_commands.choices(
         activity_type=[
+            app_commands.Choice(name="Custom Status (directly under username)", value="custom"),
             app_commands.Choice(name="Watching (Watching ...)", value="watching"),
             app_commands.Choice(name="Playing (Playing ...)", value="playing"),
             app_commands.Choice(name="Listening to (Listening to ...)", value="listening"),
@@ -303,7 +304,9 @@ class Settings(commands.Cog):
         if not (is_owner or is_admin or is_mutual_admin or ctx.author.id in owner_ids):
             await ctx.send("❌ You need Server Administrator permissions or must be the Bot Owner to change status.")
             return
+
         type_mapping = {
+            "custom": discord.ActivityType.custom,
             "playing": discord.ActivityType.playing,
             "watching": discord.ActivityType.watching,
             "listening": discord.ActivityType.listening,
@@ -317,10 +320,12 @@ class Settings(commands.Cog):
             "invisible": discord.Status.invisible
         }
 
-        act_type = type_mapping.get(activity_type.lower(), discord.ActivityType.watching)
+        act_type = type_mapping.get(activity_type.lower(), discord.ActivityType.custom)
         st = status_mapping.get((status or "online").lower(), discord.Status.online)
 
-        if act_type == discord.ActivityType.streaming:
+        if act_type == discord.ActivityType.custom:
+            activity = discord.CustomActivity(name=text)
+        elif act_type == discord.ActivityType.streaming:
             activity = discord.Streaming(name=text, url="https://twitch.tv/discord")
         else:
             activity = discord.Activity(type=act_type, name=text)
