@@ -113,10 +113,23 @@ class GiveawayBot(commands.Bot):
                 pass
         
         # Set bot activity status
-        activity = discord.Activity(
-            type=discord.ActivityType.watching,
-            name="giveaways | !help or /giveaway"
-        )
+        status_text = os.getenv("BOT_STATUS_TEXT", "giveaways | !help or /giveaway")
+        activity_type_str = os.getenv("BOT_ACTIVITY_TYPE", "watching").lower()
+        
+        act_types = {
+            "playing": discord.ActivityType.playing,
+            "watching": discord.ActivityType.watching,
+            "listening": discord.ActivityType.listening,
+            "streaming": discord.ActivityType.streaming,
+            "competing": discord.ActivityType.competing,
+        }
+        act_type = act_types.get(activity_type_str, discord.ActivityType.watching)
+        
+        if act_type == discord.ActivityType.streaming:
+            activity = discord.Streaming(name=status_text, url="https://twitch.tv/discord")
+        else:
+            activity = discord.Activity(type=act_type, name=status_text)
+
         await self.change_presence(status=discord.Status.online, activity=activity)
 
 async def main():

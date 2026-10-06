@@ -123,7 +123,9 @@ def get_category_embed(category: str, prefix: str, bot: commands.Bot) -> discord
                 f"⚙️ `{prefix}ping` or `/ping`\n"
                 f"Check bot websocket latency and response time.\n\n"
                 f"⚙️ `{prefix}botinfo` or `/botinfo`\n"
-                f"View server count, total members, and bot statistics."
+                f"View server count, total members, and bot statistics.\n\n"
+                f"🎭 `{prefix}setstatus <type> <text> [status]` or `/setstatus`\n"
+                f"Set bot presence (watching, playing, listening, streaming, competing)."
             )
         ),
     }
@@ -249,6 +251,68 @@ class Settings(commands.Cog):
         if banner_url:
             embed.set_image(url=banner_url)
         await ctx.send(embed=embed)
+
+    @commands.hybrid_command(name="setstatus", description="Change the bot's custom activity status and online state")
+    @app_commands.describe(
+        activity_type="Type of activity (watching, playing, listening, streaming, or competing)",
+        text="Status text to display (e.g. giveaways | !help)",
+        status="Online status (online, idle, dnd, or invisible)"
+    )
+    @app_commands.choices(
+        activity_type=[
+            app_commands.Choice(name="Watching (Watching ...)", value="watching"),
+            app_commands.Choice(name="Playing (Playing ...)", value="playing"),
+            app_commands.Choice(name="Listening to (Listening to ...)", value="listening"),
+            app_commands.Choice(name="Streaming (Streaming ...)", value="streaming"),
+            app_commands.Choice(name="Competing in (Competing in ...)", value="competing"),
+        ],
+        status=[
+            app_commands.Choice(name="🟢 Online", value="online"),
+            app_commands.Choice(name="🟡 Idle", value="idle"),
+            app_commands.Choice(name="🔴 Do Not Disturb (DND)", value="dnd"),
+            app_commands.Choice(name="⚪ Invisible", value="invisible"),
+        ]
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_status_cmd(
+        self,
+        ctx: commands.Context,
+        activity_type: str,
+        text: str,
+        status: Optional[str] = "online"
+    ):
+        type_mapping = {
+            "playing": discord.ActivityType.playing,
+            "watching": discord.ActivityType.watching,
+            "listening": discord.ActivityType.listening,
+            "streaming": discord.ActivityType.streaming,
+            "competing": discord.ActivityType.competing
+        }
+        status_mapping = {
+            "online": discord.Status.online,
+            "idle": discord.Status.idle,
+            "dnd": discord.Status.dnd,
+            "invisible": discord.Status.invisible
+        }
+
+        act_type = type_mapping.get(activity_type.lower(), discord.ActivityType.watching)
+        st = status_mapping.get((status or "online").lower(), discord.Status.online)
+
+        if act_type == discord.ActivityType.streaming:
+            activity = discord.Streaming(name=text, url="https://twitch.tv/discord")
+        else:
+            activity = discord.Activity(type=act_type, name=text)
+
+        await self.bot.change_presence(status=st, activity=activity)
+
+        status_emojis = {
+            "online": "🟢",
+            "idle": "🟡",
+            "dnd": "🔴",
+            "invisible": "⚪"
+        }
+        emoji = status_emojis.get((status or "online").lower(), "🟢")
+        await ctx.send(f"✅ Bot status updated!\n{emoji} **Status:** `{status.upper() if status else 'ONLINE'}` | **Activity:** `{activity_type.title()}` **{text}**")
 
     @commands.hybrid_command(name="help", description="View section-by-section help and command list")
     @app_commands.describe(section="Specific section to view (optional)")
