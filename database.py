@@ -96,6 +96,16 @@ def init_db():
                 cursor.execute(f"ALTER TABLE ticket_settings ADD COLUMN {col} {col_def}")
             except sqlite3.OperationalError:
                 pass
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bot_presence (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                custom_status TEXT,
+                activity_text TEXT,
+                activity_type TEXT DEFAULT 'streaming',
+                status TEXT DEFAULT 'online'
+            )
+        """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tickets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -485,6 +495,38 @@ def remove_np_manager(user_id: int) -> bool:
         cursor.execute("DELETE FROM np_managers WHERE user_id = ?", (user_id,))
         conn.commit()
         return cursor.rowcount > 0
+
+# --- Bot Presence Persistence ---
+
+def get_bot_presence() -> Dict[str, Any]:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM bot_presence WHERE id = 1").fetchone()
+        if row:
+            return dict(row)
+        return {
+            "custom_status": os.getenv("BOT_CUSTOM_STATUS") or os.getenv("BOT_STATUS_TEXT") or "Serving for /loveaffair",
+            "activity_text": os.getenv("BOT_ACTIVITY_TEXT") or "giveaways | !help or /giveaway",
+            "activity_type": os.getenv("BOT_ACTIVITY_TYPE") or "streaming",
+            "status": os.getenv("BOT_STATUS") or "online"
+        }
+
+def save_bot_presence(
+    custom_status: Optional[str] = None,
+    activity_text: Optional[str] = None,
+    activity_type: str = "streaming",
+    status: str = "online"
+):
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO bot_presence (id, custom_status, activity_text, activity_type, status)
+            VALUES (1, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                custom_status = excluded.custom_status,
+                activity_text = excluded.activity_text,
+                activity_type = excluded.activity_type,
+                status = excluded.status
+        """, (custom_status, activity_text, activity_type, status))
+        conn.commit()
 
 
 

@@ -6,6 +6,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 import database
+from presence import apply_bot_presence
 from cogs.giveaway import GiveawayView
 from cogs.ticket import TicketPanelView, TicketControlView, ClosedTicketControlView
 
@@ -112,28 +113,15 @@ class GiveawayBot(commands.Bot):
             except Exception:
                 pass
         
-        # Set bot activity status (defaults to Custom Status directly under username)
-        status_text = os.getenv("BOT_STATUS_TEXT", "giveaways | !help or /giveaway")
-        activity_type_str = os.getenv("BOT_ACTIVITY_TYPE", "custom").lower()
-        
-        act_types = {
-            "custom": discord.ActivityType.custom,
-            "playing": discord.ActivityType.playing,
-            "watching": discord.ActivityType.watching,
-            "listening": discord.ActivityType.listening,
-            "streaming": discord.ActivityType.streaming,
-            "competing": discord.ActivityType.competing,
-        }
-        act_type = act_types.get(activity_type_str, discord.ActivityType.custom)
-        
-        if act_type == discord.ActivityType.custom:
-            activity = discord.CustomActivity(name=status_text)
-        elif act_type == discord.ActivityType.streaming:
-            activity = discord.Streaming(name=status_text, url="https://twitch.tv/discord")
-        else:
-            activity = discord.Activity(type=act_type, name=status_text)
-
-        await self.change_presence(status=discord.Status.online, activity=activity)
+        # Set dual bot presence (Custom Status under username + Purple Streaming / Watching)
+        saved = database.get_bot_presence()
+        await apply_bot_presence(
+            bot=self,
+            custom_status=saved.get("custom_status") or os.getenv("BOT_CUSTOM_STATUS") or "Serving for /loveaffair",
+            activity_text=saved.get("activity_text") or os.getenv("BOT_ACTIVITY_TEXT") or "giveaways | !help or /giveaway",
+            activity_type=saved.get("activity_type") or os.getenv("BOT_ACTIVITY_TYPE") or "streaming",
+            status=saved.get("status") or os.getenv("BOT_STATUS") or "online"
+        )
 
 async def main():
     if not TOKEN:

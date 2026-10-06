@@ -6,6 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Optional
 import database
+from presence import apply_bot_presence
 
 # Discord dark theme color matching the clean layout
 COLOR_DARK = discord.Color(0x2B2D31)
@@ -252,33 +253,33 @@ class Settings(commands.Cog):
             embed.set_image(url=banner_url)
         await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="setstatus", description="Change the bot's custom activity status and online state")
+    @commands.hybrid_command(name="setstatus", description="Set custom status and rich activity (purple streaming, watching, etc.)")
     @app_commands.describe(
-        activity_type="Type of activity (watching, playing, listening, streaming, or competing)",
-        text="Status text to display (e.g. giveaways | !help)",
-        status="Online status (online, idle, dnd, or invisible)"
+        custom_status="Custom status text directly under username (e.g. Serving for /loveaffair)",
+        activity_text="Activity text (e.g. giveaways | !help or /giveaway)",
+        activity_type="Activity type: streaming (purple status 🟣), watching, playing, listening",
+        status="Online dot: online (green), idle (yellow), dnd (red)"
     )
     @app_commands.choices(
         activity_type=[
-            app_commands.Choice(name="Custom Status (directly under username)", value="custom"),
-            app_commands.Choice(name="Watching (Watching ...)", value="watching"),
-            app_commands.Choice(name="Playing (Playing ...)", value="playing"),
-            app_commands.Choice(name="Listening to (Listening to ...)", value="listening"),
-            app_commands.Choice(name="Streaming (Streaming ...)", value="streaming"),
-            app_commands.Choice(name="Competing in (Competing in ...)", value="competing"),
+            app_commands.Choice(name="🟣 Streaming (Purple Status Indicator)", value="streaming"),
+            app_commands.Choice(name="📺 Watching", value="watching"),
+            app_commands.Choice(name="🎮 Playing", value="playing"),
+            app_commands.Choice(name="🎧 Listening to", value="listening"),
+            app_commands.Choice(name="🏆 Competing in", value="competing"),
         ],
         status=[
             app_commands.Choice(name="🟢 Online", value="online"),
             app_commands.Choice(name="🟡 Idle", value="idle"),
             app_commands.Choice(name="🔴 Do Not Disturb (DND)", value="dnd"),
-            app_commands.Choice(name="⚪ Invisible", value="invisible"),
         ]
     )
     async def set_status_cmd(
         self,
         ctx: commands.Context,
-        activity_type: str,
-        text: str,
+        custom_status: Optional[str] = None,
+        activity_text: Optional[str] = None,
+        activity_type: Optional[str] = "streaming",
         status: Optional[str] = "online"
     ):
         # Check permissions: Bot Owner, Server Admin, or Admin in any mutual server (for DMs)
@@ -305,41 +306,36 @@ class Settings(commands.Cog):
             await ctx.send("❌ You need Server Administrator permissions or must be the Bot Owner to change status.")
             return
 
-        type_mapping = {
-            "custom": discord.ActivityType.custom,
-            "playing": discord.ActivityType.playing,
-            "watching": discord.ActivityType.watching,
-            "listening": discord.ActivityType.listening,
-            "streaming": discord.ActivityType.streaming,
-            "competing": discord.ActivityType.competing
-        }
-        status_mapping = {
-            "online": discord.Status.online,
-            "idle": discord.Status.idle,
-            "dnd": discord.Status.dnd,
-            "invisible": discord.Status.invisible
-        }
+        current = database.get_bot_presence()
+        final_custom = custom_status if custom_status is not None else current.get("custom_status", "Serving for /loveaffair")
+        final_activity = activity_text if activity_text is not None else current.get("activity_text", "giveaways | !help or /giveaway")
+        final_type = (activity_type or current.get("activity_type") or "streaming").lower()
+        final_status = (status or current.get("status") or "online").lower()
 
-        act_type = type_mapping.get(activity_type.lower(), discord.ActivityType.custom)
-        st = status_mapping.get((status or "online").lower(), discord.Status.online)
+        # Save to database for persistence across restarts
+        database.save_bot_presence(
+            custom_status=final_custom,
+            activity_text=final_activity,
+            activity_type=final_type,
+            status=final_status
+        )
 
-        if act_type == discord.ActivityType.custom:
-            activity = discord.CustomActivity(name=text)
-        elif act_type == discord.ActivityType.streaming:
-            activity = discord.Streaming(name=text, url="https://twitch.tv/discord")
-        else:
-            activity = discord.Activity(type=act_type, name=text)
+        # Apply dual presence to Gateway
+        await apply_bot_presence(
+            bot=self.bot,
+            custom_status=final_custom,
+            activity_text=final_activity,
+            activity_type=final_type,
+            status=final_status
+        )
 
-        await self.bot.change_presence(status=st, activity=activity)
-
-        status_emojis = {
-            "online": "🟢",
-            "idle": "🟡",
-            "dnd": "🔴",
-            "invisible": "⚪"
-        }
-        emoji = status_emojis.get((status or "online").lower(), "🟢")
-        await ctx.send(f"✅ Bot status updated!\n{emoji} **Status:** `{status.upper() if status else 'ONLINE'}` | **Activity:** `{activity_type.title()}` **{text}**")
+        purple_badge = " 🟣 *(Purple Status Icon Active)*" if final_type in ["streaming", "stream", "purple"] else ""
+        await ctx.send(
+            f"✅ **Bot status updated successfully!**\n"
+            f"• 💬 **Custom Status (Under Name):** `{final_custom}`\n"
+            f"• 📺 **Activity:** `{final_type.title()}: {final_activity}`{purple_badge}\n"
+            f"• 🟢 **Online State:** `{final_status.upper()}`"
+        )
 
     @commands.hybrid_command(name="help", description="View section-by-section help and command list")
     @app_commands.describe(section="Specific section to view (optional)")
