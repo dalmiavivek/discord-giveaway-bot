@@ -32,33 +32,21 @@ async def recover_ticket_from_channel(channel: discord.TextChannel) -> Optional[
             is_ticket = True
             ticket_num = int(m.group(1))
             user_id = int(m.group(2))
-        elif "ticket" in channel.topic.lower():
-            is_ticket = True
 
     # 2. Check channel name: e.g. "ticket-username-0001" or "closed-username-0001"
     if not is_ticket:
-        m_name = re.match(r"(?:ticket|closed)-.*?(\d+)", channel.name)
-        if m_name or channel.name.startswith(("ticket-", "closed-")):
+        m_name = re.match(r"^(?:ticket|closed)-.+?-(\d+)$", channel.name)
+        if m_name:
             is_ticket = True
-            if m_name:
-                try:
-                    ticket_num = int(m_name.group(1))
-                except Exception:
-                    ticket_num = 1
-
-    # 3. Check if inside configured ticket category
-    settings = database.get_ticket_settings(channel.guild.id)
-    if not is_ticket and settings.get("category_id") and channel.category_id == settings["category_id"]:
-        is_ticket = True
-
-    # 4. Check category name if category_id wasn't set
-    if not is_ticket and channel.category and any(w in channel.category.name.lower() for w in ["ticket", "support", "claim"]):
-        is_ticket = True
+            try:
+                ticket_num = int(m_name.group(1))
+            except Exception:
+                ticket_num = 1
 
     if not is_ticket:
         return None
 
-    # If user_id wasn't found from topic, look in permission overwrites
+    # If user_id wasn't found from topic, look in permission overwrites for explicit member
     if not user_id:
         for target, overwrite in channel.overwrites.items():
             if isinstance(target, discord.Member) and not target.bot:
@@ -69,7 +57,7 @@ async def recover_ticket_from_channel(channel: discord.TextChannel) -> Optional[
     # If still not found, check channel message history for initial welcome embed
     if not user_id:
         try:
-            async for msg in channel.history(limit=10, oldest_first=True):
+            async for msg in channel.history(limit=5, oldest_first=True):
                 if msg.author.id == channel.guild.me.id and msg.embeds:
                     m_user = re.search(r"<@!?(\d+)>", msg.content or (msg.embeds[0].description if msg.embeds else ""))
                     if m_user:
@@ -78,12 +66,21 @@ async def recover_ticket_from_channel(channel: discord.TextChannel) -> Optional[
         except Exception:
             pass
 
-    # Fallback to guild owner if user_id still not found
     if not user_id:
-        user_id = channel.guild.owner_id
+        return None
 
-    # Determine status
-    status = "closed" if channel.name.startswith("closed-") else "open"
+    # Determine status (check channel name, topic, and permissions)
+    is_closed = False
+    if channel.name.startswith("closed-") or (channel.topic and "[closed]" in channel.topic.lower()):
+        is_closed = True
+    else:
+        member = channel.guild.get_member(user_id)
+        if member:
+            perms = channel.overwrites_for(member)
+            if perms.send_messages is False:
+                is_closed = True
+
+    status = "closed" if is_closed else "open"
 
     # Re-insert into database
     with database.get_connection() as conn:
@@ -166,100 +163,121 @@ class TicketReasonModal(discord.ui.Modal, title="Create Support Ticket"):
         guild = interaction.guild
         user = interaction.user
 
-        settings = database.get_ticket_settings(guild.id)
-        ticket_num = database.increment_ticket_counter(guild.id)
-        channel_name = f"ticket-{user.name[:10]}-{ticket_num:04d}".lower()
-
-        # Permission Overwrites
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            user: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                attach_files=True,
-                embed_links=True
-            ),
-            guild.me: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_channels=True,
-                manage_messages=True
-            )
-        }
-
-        # Add support role overwrite if configured
-        support_role = None
-        if settings.get("support_role_id"):
-            support_role = guild.get_role(settings["support_role_id"])
-
-        # Auto-detect role named "Staff", "Support", "Admin", or "Moderator" if not explicitly configured
-        if not support_role:
-            for r in guild.roles:
-                if r.name.lower() in ["staff", "support", "admin", "moderator", "mod", "ticket staff"]:
-                    support_role = r
-                    break
-
-        if support_role:
-            overwrites[support_role] = discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                attach_files=True
-            )
-
-        category = None
-        if settings.get("category_id"):
-            category = guild.get_channel(settings["category_id"])
-
-        if not category:
-            # Auto-detect category with 'ticket' or 'support' in the name
-            for cat in guild.categories:
-                if any(w in cat.name.lower() for w in ["ticket", "support", "claim"]):
-                    category = cat
-                    database.set_ticket_settings(guild.id, category_id=cat.id)
-                    break
-
         try:
-            ticket_channel = await guild.create_text_channel(
-                name=channel_name,
-                category=category if isinstance(category, discord.CategoryChannel) else None,
-                overwrites=overwrites,
-                topic=f"Ticket #{ticket_num:04d} | Creator: {user.display_name} ({user.id})"
+            settings = database.get_ticket_settings(guild.id)
+            ticket_num = database.increment_ticket_counter(guild.id)
+            clean_username = re.sub(r"[^a-zA-Z0-9_\-]", "", user.name.lower()) or "user"
+            channel_name = f"ticket-{clean_username[:10]}-{ticket_num:04d}"
+
+            # Permission Overwrites
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                user: discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    attach_files=True,
+                    embed_links=True
+                )
+            }
+
+            bot_member = guild.me or guild.get_member(interaction.client.user.id)
+            if bot_member:
+                overwrites[bot_member] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    manage_channels=True,
+                    manage_messages=True
+                )
+
+            # Add support role overwrite if configured
+            support_role = None
+            if settings.get("support_role_id"):
+                support_role = guild.get_role(settings["support_role_id"])
+
+            # Auto-detect role named "Staff", "Support", "Admin", or "Moderator" if not explicitly configured
+            if not support_role:
+                for r in guild.roles:
+                    if r.name.lower() in ["staff", "support", "admin", "moderator", "mod", "ticket staff"]:
+                        support_role = r
+                        break
+
+            if support_role:
+                overwrites[support_role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    attach_files=True
+                )
+
+            category = None
+            if settings.get("category_id"):
+                category = guild.get_channel(settings["category_id"])
+
+            if not category:
+                # Auto-detect category with 'ticket' or 'support' in the name
+                for cat in guild.categories:
+                    if any(w in cat.name.lower() for w in ["ticket", "support", "claim"]):
+                        category = cat
+                        database.set_ticket_settings(guild.id, category_id=cat.id)
+                        break
+
+            ticket_channel = None
+            try:
+                ticket_channel = await guild.create_text_channel(
+                    name=channel_name,
+                    category=category if isinstance(category, discord.CategoryChannel) else None,
+                    overwrites=overwrites,
+                    topic=f"Ticket #{ticket_num:04d} | Creator: {user.display_name} ({user.id})"
+                )
+            except discord.HTTPException:
+                # Fallback: if category is full (50 channels limit) or invalid, retry without category
+                try:
+                    ticket_channel = await guild.create_text_channel(
+                        name=channel_name,
+                        category=None,
+                        overwrites=overwrites,
+                        topic=f"Ticket #{ticket_num:04d} | Creator: {user.display_name} ({user.id})"
+                    )
+                except Exception as inner_e:
+                    await interaction.followup.send(f"❌ Failed to create ticket channel: {inner_e}", ephemeral=True)
+                    return
+            except Exception as e:
+                await interaction.followup.send(f"❌ Failed to create ticket channel: {e}", ephemeral=True)
+                return
+
+            # Record ticket in database
+            database.create_ticket(guild.id, ticket_channel.id, user.id, ticket_num)
+
+            # Build initial ticket embed
+            embed = discord.Embed(
+                title=f"🎫 Ticket #{ticket_num:04d}",
+                description=(
+                    f"Welcome {user.mention}! Support staff will be with you shortly.\n\n"
+                    f"**Subject / Reason:**\n{self.reason.value}\n\n"
+                    f"Use the buttons below to manage this ticket."
+                ),
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
             )
-        except discord.Forbidden:
-            await interaction.followup.send("❌ Bot lacks permission to create channels! Please check bot role hierarchy and permissions.", ephemeral=True)
-            return
+            embed.set_footer(text="Click 'Close' to end this ticket and generate a transcript.")
 
-        # Record ticket in database
-        database.create_ticket(guild.id, ticket_channel.id, user.id, ticket_num)
+            # Explicitly ping staff role so staff receive instant push / audio notification
+            if support_role:
+                ping_content = f"{support_role.mention} 🔔 **New Ticket Alert!** {user.mention} opened a ticket."
+            else:
+                ping_content = f"{user.mention}"
 
-        # Build initial ticket embed
-        embed = discord.Embed(
-            title=f"🎫 Ticket #{ticket_num:04d}",
-            description=(
-                f"Welcome {user.mention}! Support staff will be with you shortly.\n\n"
-                f"**Subject / Reason:**\n{self.reason.value}\n\n"
-                f"Use the buttons below to manage this ticket."
-            ),
-            color=discord.Color.blue(),
-            timestamp=datetime.utcnow()
-        )
-        embed.set_footer(text="Click 'Close' to end this ticket and generate a transcript.")
+            await ticket_channel.send(content=ping_content, embed=embed, view=TicketControlView())
 
-        # Explicitly ping staff role so staff receive instant push / audio notification
-        if support_role:
-            ping_content = f"{support_role.mention} 🔔 **New Ticket Alert!** {user.mention} opened a ticket."
-        else:
-            ping_content = f"{user.mention}"
-
-        await ticket_channel.send(content=ping_content, embed=embed, view=TicketControlView())
-
-        await interaction.followup.send(
-            f"✅ Your ticket has been created: {ticket_channel.mention}",
-            ephemeral=True
-        )
+            await interaction.followup.send(
+                f"✅ Your ticket has been created: {ticket_channel.mention}",
+                ephemeral=True
+            )
+        except Exception as err:
+            print(f"Error creating ticket: {err}")
+            await interaction.followup.send(f"❌ Failed to create ticket: {err}", ephemeral=True)
 
 class TicketPanelView(discord.ui.View):
     def __init__(self, label: str = "Open Ticket", emoji: Optional[str] = None):
@@ -291,16 +309,35 @@ class TicketPanelView(discord.ui.View):
         # Check if user already has an active open ticket
         existing = database.get_user_open_ticket(interaction.guild_id, interaction.user.id)
         if existing:
-            ch = interaction.guild.get_channel(existing["channel_id"])
-            if ch:
-                await interaction.response.send_message(
-                    f"❌ You already have an open ticket in {ch.mention}!",
-                    ephemeral=True
-                )
-                return
-            else:
-                # Channel was deleted manually without closing in DB
+            ch = None
+            try:
+                ch = interaction.guild.get_channel(existing["channel_id"])
+                if not ch:
+                    ch = await interaction.guild.fetch_channel(existing["channel_id"])
+            except Exception:
+                ch = None
+
+            if ch is None:
+                # Channel no longer exists in Discord, clean up DB
                 database.close_ticket(existing["channel_id"], interaction.user.id)
+            else:
+                is_closed = False
+                if ch.name.startswith("closed-") or (ch.topic and "[closed]" in ch.topic.lower()):
+                    is_closed = True
+                else:
+                    perms = ch.permissions_for(interaction.user)
+                    if not perms.view_channel or not perms.send_messages:
+                        is_closed = True
+
+                if is_closed:
+                    database.close_ticket(existing["channel_id"], interaction.user.id)
+                elif not (interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild):
+                    # Only block regular users who already have an accessible open channel
+                    await interaction.response.send_message(
+                        f"❌ You already have an open ticket in {ch.mention}!",
+                        ephemeral=True
+                    )
+                    return
 
         # Open the modal
         await interaction.response.send_modal(TicketReasonModal())
@@ -1020,7 +1057,7 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Self-heal all tickets and auto-restore category settings on startup."""
+        """Self-heal tickets and clean up ghost open tickets on startup."""
         recovered = 0
         for guild in self.bot.guilds:
             settings = database.get_ticket_settings(guild.id)
@@ -1033,13 +1070,23 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
                         print(f"📁 Auto-detected ticket category '{cat.name}' for {guild.name}")
                         break
 
-            # Scan channels to recover any active or closed tickets
+            # Purge ghost open tickets from DB where channel no longer exists
+            with database.get_connection() as conn:
+                open_rows = conn.execute(
+                    "SELECT channel_id FROM tickets WHERE guild_id = ? AND status = 'open'",
+                    (guild.id,)
+                ).fetchall()
+                for r in open_rows:
+                    ch = guild.get_channel(r["channel_id"])
+                    if not ch:
+                        conn.execute("UPDATE tickets SET status = 'closed' WHERE channel_id = ?", (r["channel_id"],))
+                conn.commit()
+
+            # Scan channels to recover genuine tickets
             for channel in guild.text_channels:
-                if (
-                    channel.name.startswith(("ticket-", "closed-"))
-                    or (channel.topic and "Ticket #" in channel.topic)
-                    or (channel.category and any(w in channel.category.name.lower() for w in ["ticket", "support"]))
-                ):
+                is_ticket_name = bool(re.match(r"^(?:ticket|closed)-.+?-\d+$", channel.name))
+                has_ticket_topic = bool(channel.topic and "Ticket #" in channel.topic)
+                if is_ticket_name or has_ticket_topic:
                     existing = database.get_ticket_by_channel(channel.id)
                     if not existing:
                         rec = await recover_ticket_from_channel(channel)
