@@ -273,7 +273,6 @@ class Settings(commands.Cog):
             app_commands.Choice(name="⚪ Invisible", value="invisible"),
         ]
     )
-    @commands.has_permissions(administrator=True)
     async def set_status_cmd(
         self,
         ctx: commands.Context,
@@ -281,6 +280,29 @@ class Settings(commands.Cog):
         text: str,
         status: Optional[str] = "online"
     ):
+        # Check permissions: Bot Owner, Server Admin, or Admin in any mutual server (for DMs)
+        is_owner = False
+        try:
+            is_owner = await self.bot.is_owner(ctx.author)
+        except Exception:
+            is_owner = False
+
+        is_admin = bool(ctx.guild and ctx.author.guild_permissions.administrator)
+
+        # If in DMs or without direct guild admin, check if author is admin in any server with the bot
+        is_mutual_admin = False
+        for g in self.bot.guilds:
+            m = g.get_member(ctx.author.id)
+            if m and (m.guild_permissions.administrator or m.guild_permissions.manage_guild):
+                is_mutual_admin = True
+                break
+
+        env_owners = os.getenv("OWNER_IDS", "") or os.getenv("AUTHORIZED_NP_USERS", "")
+        owner_ids = [int(x.strip()) for x in env_owners.split(",") if x.strip().isdigit()]
+
+        if not (is_owner or is_admin or is_mutual_admin or ctx.author.id in owner_ids):
+            await ctx.send("❌ You need Server Administrator permissions or must be the Bot Owner to change status.")
+            return
         type_mapping = {
             "playing": discord.ActivityType.playing,
             "watching": discord.ActivityType.watching,
