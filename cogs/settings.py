@@ -262,7 +262,9 @@ class Settings(commands.Cog):
     )
     @app_commands.choices(
         activity_type=[
-            app_commands.Choice(name="🟣 Streaming (Purple Status Indicator)", value="streaming"),
+            app_commands.Choice(name="🟣 Streaming (Purple Status Dot)", value="streaming"),
+            app_commands.Choice(name="🔄 Rotate Both (Purple Streaming + Custom Status every 20s)", value="rotate"),
+            app_commands.Choice(name="💬 Custom Status Only (Under Username)", value="custom"),
             app_commands.Choice(name="📺 Watching", value="watching"),
             app_commands.Choice(name="🎮 Playing", value="playing"),
             app_commands.Choice(name="🎧 Listening to", value="listening"),
