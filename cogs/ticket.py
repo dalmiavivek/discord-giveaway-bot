@@ -309,35 +309,24 @@ class TicketPanelView(discord.ui.View):
         # Check if user already has an active open ticket
         existing = database.get_user_open_ticket(interaction.guild_id, interaction.user.id)
         if existing:
-            ch = None
-            try:
-                ch = interaction.guild.get_channel(existing["channel_id"])
-                if not ch:
-                    ch = await interaction.guild.fetch_channel(existing["channel_id"])
-            except Exception:
-                ch = None
-
-            if ch is None:
-                # Channel no longer exists in Discord, clean up DB
+            ch = interaction.guild.get_channel(existing["channel_id"])
+            # If channel doesn't exist in Discord, is deleted, or doesn't start with ticket-
+            if not ch or not ch.name.startswith("ticket-"):
                 database.close_ticket(existing["channel_id"], interaction.user.id)
-            else:
-                is_closed = False
-                if ch.name.startswith("closed-") or (ch.topic and "[closed]" in ch.topic.lower()):
-                    is_closed = True
-                else:
-                    perms = ch.permissions_for(interaction.user)
-                    if not perms.view_channel or not perms.send_messages:
-                        is_closed = True
-
-                if is_closed:
+            elif not (interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild):
+                # Non-admin user: check if channel is accessible to them
+                perms = ch.permissions_for(interaction.user)
+                if not perms.view_channel or not perms.send_messages:
                     database.close_ticket(existing["channel_id"], interaction.user.id)
-                elif not (interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild):
-                    # Only block regular users who already have an accessible open channel
+                else:
                     await interaction.response.send_message(
-                        f"❌ You already have an open ticket in {ch.mention}!",
+                        f"❌ You already have an active ticket in {ch.mention}!",
                         ephemeral=True
                     )
                     return
+            else:
+                # Admins and server owners: auto-close previous test record and proceed
+                database.close_ticket(existing["channel_id"], interaction.user.id)
 
         # Open the modal
         await interaction.response.send_modal(TicketReasonModal())
@@ -762,6 +751,18 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
         # Trigger the close button directly
         await view.close_ticket_button(interaction, None)
 
+    @app_commands.command(name="reset", description="Reset stuck ticket records so users can open tickets")
+    @app_commands.describe(user="Optional user to reset, or leave empty to reset all")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def ticket_reset_cmd(self, interaction: discord.Interaction, user: Optional[discord.User] = None):
+        with database.get_connection() as conn:
+            if user:
+                conn.execute("UPDATE tickets SET status = 'closed' WHERE guild_id = ? AND user_id = ?", (interaction.guild_id, user.id))
+                await interaction.response.send_message(f"✅ Reset all open ticket records for {user.mention}!", ephemeral=True)
+            else:
+                conn.execute("UPDATE tickets SET status = 'closed' WHERE guild_id = ?", (interaction.guild_id,))
+                await interaction.response.send_message("✅ Successfully reset all open ticket records for this server!", ephemeral=True)
+
     # --- Traditional Prefix Commands ---
 
     @commands.command(name="ticketsetup")
@@ -947,6 +948,18 @@ class Ticket(commands.GroupCog, group_name="ticket", group_description="Commands
             timestamp=datetime.utcnow()
         )
         await ctx.send(embed=closed_embed, view=ClosedTicketControlView())
+
+    @commands.command(name="ticketreset", aliases=["ticketclear", "treset"])
+    @commands.has_permissions(manage_guild=True)
+    async def prefix_ticket_reset(self, ctx: commands.Context, user: Optional[discord.User] = None):
+        """Reset stuck open tickets: !ticketreset [optional @user]"""
+        with database.get_connection() as conn:
+            if user:
+                conn.execute("UPDATE tickets SET status = 'closed' WHERE guild_id = ? AND user_id = ?", (ctx.guild.id, user.id))
+                await ctx.send(f"✅ Reset all open ticket records for {user.mention}! They can now create tickets.")
+            else:
+                conn.execute("UPDATE tickets SET status = 'closed' WHERE guild_id = ?", (ctx.guild.id,))
+                await ctx.send("✅ Successfully reset all open ticket records for this server! Anyone can now create tickets.")
 
     @app_commands.command(name="delete", description="Permanently delete the current ticket channel")
     @app_commands.checks.has_permissions(manage_channels=True)
